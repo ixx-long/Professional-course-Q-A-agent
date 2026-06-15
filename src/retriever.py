@@ -38,18 +38,9 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
     用法:
         ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-4-v2", "./models")
     """
-    # 国内网络环境兼容：使用 HF 镜像 + 禁用 SSL 验证
+    # 国内网络环境兼容：使用 HF 镜像（仅影响 HuggingFace Hub）
     import os as _os
-    _os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-
-    import requests as _requests
-    import urllib3 as _urllib3
-    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
-    _original_request = _requests.Session.request
-    def _patched_request(self, method, url, **kwargs):
-        kwargs['verify'] = False
-        return _original_request(self, method, url, **kwargs)
-    _requests.Session.request = _patched_request
+    _os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
     try:
         from sentence_transformers import CrossEncoder

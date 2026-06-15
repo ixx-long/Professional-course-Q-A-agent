@@ -27,11 +27,12 @@ app = Flask(__name__)
 
 # ---- 全局组件（延迟初始化）----
 qa_chain = None
-chat_history = None
+sessions: dict = {}  # session_id → ChatHistory（多用户隔离）
 config = None
 logger = None
-retriever = None   # 供 _ask_with_image 使用
+retriever = None   # 供 _ask_with_image 和课程筛选使用
 llm = None         # 供 _ask_with_image 使用
+vectorstore = None # 供课程筛选检索使用
 
 # ---- 内联 HTML 模板（从 templates/index.html 加载或使用内联模板）----
 INDEX_HTML = None  # 延迟加载
@@ -39,7 +40,7 @@ INDEX_HTML = None  # 延迟加载
 
 def init_system(config_path: str):
     """初始化 RAG 系统组件。"""
-    global qa_chain, chat_history, config, logger, retriever, llm
+    global qa_chain, config, logger, retriever, llm, vectorstore
 
     config = load_config(config_path)
 
@@ -77,11 +78,21 @@ def init_system(config_path: str):
     from src.chain import get_llm
     llm = get_llm(config)
 
-    # 对话历史 + 链
-    chat_history = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+    # 向量库引用（供课程筛选检索）
+    vectorstore = vectorstore
+
+    # 对话链（每个 session 独立 ChatHistory）
     qa_chain = create_qa_chain(compression_retriever, config)
 
     logger.info("系统初始化完成")
+
+
+def _get_session(session_id: str) -> ChatHistory:
+    """获取或创建 session 对应的 ChatHistory。"""
+    global sessions
+    if session_id not in sessions:
+        sessions[session_id] = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+    return sessions[session_id]
 
 
 def load_index_html() -> str:
@@ -106,51 +117,79 @@ def index():
 
 @app.route("/api/ask", methods=["POST"])
 def api_ask():
-    """问答接口。支持文本问答和图片提问。"""
-    global qa_chain, chat_history, retriever, llm
+    """问答接口。支持文本问答、图片提问、课程筛选。"""
+    global qa_chain, retriever, llm, vectorstore
 
     if qa_chain is None:
-        return jsonify({"error": "系统未初始化"}), 500
+        return jsonify({"error": "系统未初始化，请等待服务启动完成"}), 503
 
     data = request.get_json()
     if not data:
         return jsonify({"error": "请求体为空"}), 400
 
     question = (data.get("question") or "").strip()
-    image_b64 = data.get("image")  # 可选：base64 图片
+    image_b64 = data.get("image")
+    course = data.get("course")
+    session_id = data.get("session_id") or "default"
 
     if not question and not image_b64:
         return jsonify({"error": "问题不能为空"}), 400
 
+    chat_history = _get_session(session_id)
     display_text = question or "[图片提问]"
-    logger.info(f"用户问题: {display_text}")
+    logger.info(f"[{session_id[:8]}] 问题: {display_text}" + (f" | 课程: {course}" if course else ""))
 
     try:
-        # 有图片：走多模态直调（检索文档 + 图片 + 问题）
         if image_b64:
-            answer, source_docs = _ask_with_image(question, image_b64)
+            answer, source_docs = _ask_with_image(question, image_b64, session_id)
         else:
-            result = qa_chain.invoke({
+            # 课程筛选：使用带 metadata filter 的 retriever
+            chain = qa_chain
+            if course and course != "all":
+                filter_retriever = _get_filtered_retriever(course)
+                chain = create_qa_chain(filter_retriever, config)
+
+            result = chain.invoke({
                 "question": question,
                 "chat_history": chat_history.get_history(),
             })
             answer = result.get("answer", "（生成回答失败）")
             source_docs = result.get("source_documents", [])
     except Exception as e:
+        error_msg = str(e)
+        if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+            logger.error(f"LLM 调用超时: {e}")
+            return jsonify({"error": "请求超时，请稍后重试"}), 504
+        if "401" in error_msg or "403" in error_msg or "invalid api key" in error_msg.lower():
+            logger.error(f"API Key 无效: {e}")
+            return jsonify({"error": "API Key 无效，请检查 config.yaml 配置"}), 500
+        if "rate" in error_msg.lower():
+            logger.error(f"API 限流: {e}")
+            return jsonify({"error": "请求过于频繁，请稍后重试"}), 429
         logger.error(f"问答失败: {e}", exc_info=True)
-        return jsonify({"error": f"问答失败: {str(e)}"}), 500
+        return jsonify({"error": f"服务异常: {error_msg[:200]}"}), 500
 
     # 更新对话历史
     chat_history.add_user(display_text)
     chat_history.add_ai(answer)
 
-    # 提取来源信息
-    sources = _extract_sources(source_docs)
-
     return jsonify({
         "answer": answer,
-        "sources": sources,
+        "sources": _extract_sources(source_docs),
     })
+
+
+def _get_filtered_retriever(course: str):
+    """获取带课程筛选的 retriever。"""
+    global vectorstore
+    from src.vectorstore import get_retriever
+    return vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={
+            "k": config["retrieval"]["top_k"],
+            "filter": {"course": course},
+        },
+    )
 
 
 def _extract_sources(source_docs: list) -> list:
@@ -172,9 +211,11 @@ def _extract_sources(source_docs: list) -> list:
     return sources
 
 
-def _ask_with_image(question: str, image_b64: str):
+def _ask_with_image(question: str, image_b64: str, session_id: str = "default"):
     """多模态问答：检索文档 + 图片 + LLM 直调。"""
-    global retriever, llm, chat_history, config
+    global retriever, llm, config
+
+    chat_history = _get_session(session_id)
 
     # 1. 用文本检索相关文档
     search_query = question or "请描述这张图片的内容"
@@ -224,10 +265,9 @@ def _ask_with_image(question: str, image_b64: str):
 
 @app.route("/api/history", methods=["GET"])
 def api_history():
-    """获取当前对话历史（页面刷新后恢复）。"""
-    global chat_history
-    if not chat_history:
-        return jsonify({"messages": []})
+    """获取当前 session 的对话历史（页面刷新后恢复）。"""
+    session_id = request.args.get("session_id") or "default"
+    chat_history = _get_session(session_id)
 
     from langchain_core.messages import HumanMessage, AIMessage
     messages = []
@@ -241,11 +281,11 @@ def api_history():
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
-    """重置对话历史。"""
-    global chat_history
-    if chat_history:
-        chat_history.clear()
-    logger.info("对话历史已重置")
+    """重置当前 session 的对话历史。"""
+    data = request.get_json() or {}
+    session_id = data.get("session_id") or "default"
+    _get_session(session_id).clear()
+    logger.info(f"[{session_id[:8]}] 对话历史已重置")
     return jsonify({"status": "ok", "message": "对话历史已清空"})
 
 

@@ -400,10 +400,18 @@
   // ============ STATE ============
   let isWaiting = false;
   let currentCourse = 'all';
-  let uploadedImage = null; // { name, base64 }
+  let uploadedImage = null;
   let recognition = null;
   let isRecording = false;
-  let conversationHistory = []; // [{id, title, course}]
+  let conversationHistory = [];
+
+  // 持久化 session_id（localStorage），刷新不丢
+  function getSessionId() {
+    let sid = localStorage.getItem('courseqa_session_id');
+    if (!sid) { sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); localStorage.setItem('courseqa_session_id', sid); }
+    return sid;
+  }
+  const SESSION_ID = getSessionId();
 
   // ============ AUTO-RESIZE ============
   function autoResize(el) {
@@ -426,7 +434,7 @@
   // ============ RESTORE ON LOAD ============
   async function restoreFromServer() {
     try {
-      const resp = await fetch('/api/history');
+      const resp = await fetch('/api/history?session_id=' + SESSION_ID);
       const data = await resp.json();
       const msgs = data.messages || [];
       if (!msgs.length) return;
@@ -495,7 +503,7 @@
           <div class="welcome-card" onclick="askHint('二叉树的遍历方式有哪些？')"><span class="icon">&#9654;</span>二叉树的遍历方式</div>
         </div>
       </div>`;
-    fetch('/api/reset', { method:'POST' }).catch(()=>{});
+    fetch('/api/reset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({session_id: SESSION_ID}) }).catch(()=>{});
   }
 
   // ============ HINT ============
@@ -570,7 +578,7 @@
     scrollBottom();
 
     try {
-      const body = { question: sentQuestion };
+      const body = { question: sentQuestion, session_id: SESSION_ID };
       if (sentImage) body.image = sentImage.base64;
       if (currentCourse !== 'all') body.course = currentCourse;
 
@@ -580,8 +588,15 @@
       });
       const data = await resp.json();
       typingEl.remove();
-      if (data.error) appendBotMsg('请求失败：' + data.error, null, true);
-      else appendBotMsg(data.answer, data.sources);
+      if (data.error) {
+        const errMap = {
+          '超时': '请求超时，请稍后重试',
+          'API Key': 'API Key 无效，请检查 config.yaml 配置',
+          '限流': '请求过于频繁，请稍后重试',
+        };
+        const friendly = Object.entries(errMap).find(([k]) => data.error.includes(k))?.[1] || data.error;
+        appendBotMsg(friendly, null, true);
+      } else appendBotMsg(data.answer, data.sources);
       if (sentQuestion) addHistory(sentQuestion);
     } catch (e) {
       typingEl.remove();
