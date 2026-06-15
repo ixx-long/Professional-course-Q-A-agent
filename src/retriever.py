@@ -26,7 +26,7 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
     加载 CrossEncoder 模型（带缓存处理）。
 
     Args:
-        model_name: HuggingFace 模型名称，如 'cross-encoder/ms-marco-MiniLM-L-6-v2'。
+        model_name: HuggingFace 模型名称，如 'cross-encoder/ms-marco-MiniLM-L-4-v2'。
         cache_dir: 模型缓存目录。
 
     Returns:
@@ -36,7 +36,7 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
         ImportError: sentence-transformers 未安装时抛出。
 
     用法:
-        ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-6-v2", "./models")
+        ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-4-v2", "./models")
     """
     # 国内网络环境兼容：使用 HF 镜像 + 禁用 SSL 验证
     import os as _os
