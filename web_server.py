@@ -30,6 +30,8 @@ qa_chain = None
 chat_history = None
 config = None
 logger = None
+retriever = None   # 供 _ask_with_image 使用
+llm = None         # 供 _ask_with_image 使用
 
 # ---- 内联 HTML 模板（从 templates/index.html 加载或使用内联模板）----
 INDEX_HTML = None  # 延迟加载
@@ -37,7 +39,7 @@ INDEX_HTML = None  # 延迟加载
 
 def init_system(config_path: str):
     """初始化 RAG 系统组件。"""
-    global qa_chain, chat_history, config, logger
+    global qa_chain, chat_history, config, logger, retriever, llm
 
     config = load_config(config_path)
 
@@ -71,6 +73,10 @@ def init_system(config_path: str):
         logger.warning(f"重排序模型加载失败，使用基础检索: {e}")
         compression_retriever = retriever
 
+    # LLM 实例（供图片问答使用）
+    from src.chain import get_llm
+    llm = get_llm(config)
+
     # 对话历史 + 链
     chat_history = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
     qa_chain = create_qa_chain(compression_retriever, config)
@@ -100,42 +106,58 @@ def index():
 
 @app.route("/api/ask", methods=["POST"])
 def api_ask():
-    """问答接口。"""
-    global qa_chain, chat_history
+    """问答接口。支持文本问答和图片提问。"""
+    global qa_chain, chat_history, retriever, llm
 
     if qa_chain is None:
         return jsonify({"error": "系统未初始化"}), 500
 
     data = request.get_json()
-    if not data or "question" not in data:
-        return jsonify({"error": "缺少 question 参数"}), 400
+    if not data:
+        return jsonify({"error": "请求体为空"}), 400
 
-    question = data["question"].strip()
-    if not question:
+    question = (data.get("question") or "").strip()
+    image_b64 = data.get("image")  # 可选：base64 图片
+
+    if not question and not image_b64:
         return jsonify({"error": "问题不能为空"}), 400
 
-    logger.info(f"用户问题: {question}")
+    display_text = question or "[图片提问]"
+    logger.info(f"用户问题: {display_text}")
 
     try:
-        result = qa_chain.invoke({
-            "question": question,
-            "chat_history": chat_history.get_history(),
-        })
+        # 有图片：走多模态直调（检索文档 + 图片 + 问题）
+        if image_b64:
+            answer, source_docs = _ask_with_image(question, image_b64)
+        else:
+            result = qa_chain.invoke({
+                "question": question,
+                "chat_history": chat_history.get_history(),
+            })
+            answer = result.get("answer", "（生成回答失败）")
+            source_docs = result.get("source_documents", [])
     except Exception as e:
         logger.error(f"问答失败: {e}", exc_info=True)
         return jsonify({"error": f"问答失败: {str(e)}"}), 500
 
-    answer = result.get("answer", "（生成回答失败）")
-    source_docs = result.get("source_documents", [])
-
     # 更新对话历史
-    chat_history.add_user(question)
+    chat_history.add_user(display_text)
     chat_history.add_ai(answer)
 
     # 提取来源信息
+    sources = _extract_sources(source_docs)
+
+    return jsonify({
+        "answer": answer,
+        "sources": sources,
+    })
+
+
+def _extract_sources(source_docs: list) -> list:
+    """从 Document 列表提取去重的来源信息。"""
     sources = []
     seen = set()
-    for doc in source_docs:
+    for doc in (source_docs or []):
         source = doc.metadata.get("source", "未知")
         page = doc.metadata.get("page", "N/A")
         score = doc.metadata.get("rerank_score")
@@ -147,11 +169,57 @@ def api_ask():
                 "page": page,
                 "score": round(float(score), 4) if score else None,
             })
+    return sources
 
-    return jsonify({
-        "answer": answer,
-        "sources": sources,
+
+def _ask_with_image(question: str, image_b64: str):
+    """多模态问答：检索文档 + 图片 + LLM 直调。"""
+    global retriever, llm, chat_history, config
+
+    # 1. 用文本检索相关文档
+    search_query = question or "请描述这张图片的内容"
+    raw_docs = retriever.invoke(search_query)[:4]
+    context = "\n\n".join(
+        f"[来源: {d.metadata.get('source','?')} p{d.metadata.get('page','?')}]\n{d.page_content[:600]}"
+        for d in raw_docs
+    ) if raw_docs else "（知识库中未找到相关内容）"
+
+    # 2. 构建多模态消息
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    system_msg = SystemMessage(content=(
+        "你是一个专业课程答疑助手。请根据提供的知识库上下文回答用户问题。"
+        "如果知识库信息不足，请如实说明。回答格式：\n"
+        "【依据】…\n【解答】…\n【来源】…"
+    ))
+
+    history_str = "\n".join(
+        f"{'用户' if isinstance(m, HumanMessage) else '助手'}: {m.content}"
+        for m in chat_history.get_history()
+    ) if chat_history.get_history() else "（无历史）"
+
+    # 多模态 HumanMessage
+    content_parts = []
+    content_parts.append({
+        "type": "text",
+        "text": (
+            f"## 知识库上下文\n{context}\n\n"
+            f"## 对话历史\n{history_str}\n\n"
+            f"## 用户问题\n{question or '请分析这张图片，结合知识库内容回答。'}"
+        )
     })
+    content_parts.append({
+        "type": "image_url",
+        "image_url": {"url": image_b64}
+    })
+
+    human_msg = HumanMessage(content=content_parts)
+
+    # 3. 调用 LLM
+    resp = llm.invoke([system_msg, human_msg])
+    answer = resp.content
+
+    return answer, raw_docs
 
 
 @app.route("/api/reset", methods=["POST"])
