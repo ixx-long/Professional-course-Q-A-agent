@@ -3,14 +3,13 @@
 
 职责:
   - 构建包含学术诚信规则的 System Prompt
-  - 创建 ConversationalRetrievalChain，整合检索、记忆和自定义 Prompt
+  - 创建 ConversationalRetrievalChain，手动管理对话历史
   - 支持 Few-shot 示例引导模型行为
 """
 
 import logging
 from typing import Any
 
-from langchain_classic.memory import ConversationBufferMemory
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
@@ -18,6 +17,7 @@ from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
 )
+from langchain_core.messages import HumanMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
@@ -123,36 +123,31 @@ def get_llm(config: dict[str, Any]) -> ChatOpenAI:
 
 def create_qa_chain(
     retriever,
-    memory: ConversationBufferMemory,
     config: dict[str, Any],
 ) -> ConversationalRetrievalChain:
     """
-    创建整合检索、记忆和自定义 Prompt 的对话链。
+    创建检索问答链（手动管理对话历史）。
 
     使用 LangChain 的 ConversationalRetrievalChain，将检索到的知识库片段
     与对话历史、System Prompt 一同送入 LLM。
 
+    调用方需手动传入 chat_history（list[BaseMessage]）：
+        chat_history = []
+        chain = create_qa_chain(retriever, config)
+        result = chain.invoke({"question": "...", "chat_history": chat_history})
+        chat_history.append(HumanMessage(content=result["question"]))
+        chat_history.append(AIMessage(content=result["answer"]))
+
     Args:
         retriever: LangChain Retriever 实例（可以是基础 Retriever 或压缩 Retriever）。
-        memory: ConversationBufferMemory 实例（需设置 memory_key="chat_history", return_messages=True）。
         config: 完整配置字典。
 
     Returns:
-        ConversationalRetrievalChain 实例，可直接调用 .invoke({"question": "..."})。
-
-    用法:
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="answer",
-        )
-        chain = create_qa_chain(retriever, memory, config)
-        result = chain.invoke({"question": "什么是死锁？"})
-        print(result["answer"])
+        ConversationalRetrievalChain 实例。
     """
     llm = get_llm(config)
 
-    # 构建问答 Prompt（组合 System Prompt + 上下文占位符）
+    # 构建问答 Prompt（组合 System Prompt + 上下文占位符 + chat_history）
     qa_prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
         MessagesPlaceholder(variable_name="chat_history"),
@@ -177,32 +172,40 @@ def create_qa_chain(
         verbose=False,
     )
 
-    # 设置记忆（from_llm 不接受 memory 参数，需手动赋值）
-    chain.memory = memory
-
     logger.info("对话链创建完成")
     return chain
 
 
-def create_memory(max_turns: int = 4) -> ConversationBufferMemory:
-    """
-    创建对话记忆实例。
+class ChatHistory:
+    """对话历史管理器。"""
 
-    Args:
-        max_turns: 保留的最大对话轮数（在 CLI 层通过手动 truncate 管理）。
+    def __init__(self, max_turns: int = 4):
+        """
+        Args:
+            max_turns: 保留的最大对话轮数（每轮 = 1 用户消息 + 1 AI 回复）。
+        """
+        self.messages: list = []
+        self.max_turns = max_turns
 
-    Returns:
-        ConversationBufferMemory 实例。
+    def add_user(self, content: str) -> None:
+        """记录用户消息。"""
+        self.messages.append(HumanMessage(content=content))
 
-    用法:
-        memory = create_memory(max_turns=4)
-    """
-    return ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True,
-        output_key="answer",
-        input_key="question",
-    )
+    def add_ai(self, content: str) -> None:
+        """记录 AI 回复。"""
+        self.messages.append(AIMessage(content=content))
+
+    def get_messages(self) -> list:
+        """获取最近 max_turns 轮的消息列表。"""
+        max_messages = self.max_turns * 2  # 每轮 2 条消息
+        if len(self.messages) > max_messages:
+            return self.messages[-max_messages:]
+        return self.messages.copy()
+
+    def clear(self) -> None:
+        """清空历史。"""
+        self.messages = []
+        logger.info("对话历史已清空")
 
 
 def format_source_documents(source_docs: list[Document]) -> str:

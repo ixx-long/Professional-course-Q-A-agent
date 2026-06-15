@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.utils import load_config, setup_logger, mask_key
 from src.vectorstore import get_embedding_model, get_vectorstore, get_retriever
 from src.retriever import load_cross_encoder, create_compression_retriever
-from src.chain import create_qa_chain, create_memory, format_source_documents
+from src.chain import create_qa_chain, ChatHistory, format_source_documents
 
 # ANSI 颜色（跨平台）
 try:
@@ -126,9 +126,9 @@ def main():
             logger.warning(f"CrossEncoder 加载失败，降级为无重排序: {ce_err}")
             compression_retriever = retriever  # 降级：不使用重排序
 
-        # 记忆 + 对话链
-        memory = create_memory(max_turns=config["memory"].get("max_turns", 4))
-        qa_chain = create_qa_chain(compression_retriever, memory, config)
+        # 对话历史 + 对话链
+        chat_history = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+        qa_chain = create_qa_chain(compression_retriever, config)
 
     except Exception as e:
         print(f"{RED}[错误] 初始化失败: {e}{RESET}")
@@ -158,9 +158,8 @@ def main():
             break
 
         if user_input.lower() == "/reset":
-            memory.clear()
+            chat_history.clear()
             print(GREEN + "[OK] 对话记忆已清空" + RESET)
-            logger.info("用户清空对话记忆")
             continue
 
         if user_input.lower() == "/sources":
@@ -174,7 +173,10 @@ def main():
         print(YELLOW + "正在检索知识库..." + RESET)
 
         try:
-            result = qa_chain.invoke({"question": user_input})
+            result = qa_chain.invoke({
+                "question": user_input,
+                "chat_history": chat_history.get_messages(),
+            })
         except Exception as e:
             print(f"{RED}[错误] 问答失败: {e}{RESET}")
             logger.error(f"问答失败: {e}", exc_info=True)
@@ -182,6 +184,10 @@ def main():
 
         answer = result.get("answer", "（生成回答失败）")
         source_docs = result.get("source_documents", [])
+
+        # 更新对话历史
+        chat_history.add_user(user_input)
+        chat_history.add_ai(answer)
 
         # ---- 输出回答 ----
         print("\n" + "-" * 60)
