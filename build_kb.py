@@ -104,11 +104,11 @@ def main():
         sys.exit(1)
 
     logger.info(f"加载完成: {len(documents)} 个文本块")
-    print(f"  ✓ 共加载 {len(documents)} 个文本块")
+    print(f"  [OK] 共加载 {len(documents)} 个文本块")
 
     # 统计文件来源
     sources = set(doc.metadata.get("source", "未知") for doc in documents)
-    print(f"  ✓ 来源文件数: {len(sources)}")
+    print(f"  [OK] 来源文件数: {len(sources)}")
     for src in sorted(sources):
         print(f"    - {src}")
 
@@ -120,7 +120,7 @@ def main():
     except Exception as e:
         logger.error(f"初始化向量库失败: {e}")
         sys.exit(1)
-    print("  ✓ Chroma 向量库已就绪")
+    print("  [OK] Chroma 向量库已就绪")
 
     # ---- 添加文档 ----
     print("\n[3/3] 生成嵌入并写入向量库...")
@@ -135,11 +135,11 @@ def main():
         sys.exit(1)
 
     if added == 0:
-        print("  ✓ 所有文档已存在，无需更新")
+        print("  [OK] 所有文档已存在，无需更新")
     else:
-        print(f"  ✓ 新增 {added} 个文本块")
+        print(f"  [OK] 新增 {added} 个文本块")
         persist_dir = config.get("chroma", {}).get("persist_dir", "./data/chroma_db")
-        print(f"  ✓ 向量库已持久化至: {persist_dir}")
+        print(f"  [OK] 向量库已持久化至: {persist_dir}")
 
     print("\n" + "=" * 60)
     print("  构建完成！")

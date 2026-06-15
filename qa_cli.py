@@ -43,7 +43,7 @@ except ImportError:
 def print_banner():
     """打印欢迎横幅。"""
     print(CYAN + "=" * 60)
-    print("   📚 专业课程答疑智能体")
+    print("   专业课程答疑智能体")
     print("   输入问题开始问答，/exit 退出，/reset 清空记忆，/sources 切换来源显示")
     print("=" * 60 + RESET)
 
@@ -53,7 +53,7 @@ def print_sources(source_docs):
     if not source_docs:
         print(YELLOW + "  (无知识库来源引用)" + RESET)
         return
-    print(GREEN + "\n📖 参考来源:" + RESET)
+    print(GREEN + "\n参考来源:" + RESET)
     seen = set()
     for doc in source_docs:
         source = doc.metadata.get("source", "未知")
@@ -130,7 +130,7 @@ def main():
         logger.error(f"初始化失败: {e}", exc_info=True)
         sys.exit(1)
 
-    print(GREEN + "✓ 系统就绪" + RESET)
+    print(GREEN + "[OK] 系统就绪" + RESET)
     logger.info("系统初始化完成")
 
     # ---- 交互循环 ----
@@ -139,7 +139,7 @@ def main():
 
     while True:
         try:
-            user_input = input(CYAN + "\n🧑 你的问题: " + RESET).strip()
+            user_input = input(CYAN + "\n你的问题: " + RESET).strip()
         except (KeyboardInterrupt, EOFError):
             print("\n再见！")
             break
@@ -154,19 +154,19 @@ def main():
 
         if user_input.lower() == "/reset":
             memory.clear()
-            print(GREEN + "✓ 对话记忆已清空" + RESET)
+            print(GREEN + "[OK] 对话记忆已清空" + RESET)
             logger.info("用户清空对话记忆")
             continue
 
         if user_input.lower() == "/sources":
             show_raw = not show_raw
             status = "开启" if show_raw else "关闭"
-            print(GREEN + f"✓ 详细来源显示已{status}" + RESET)
+            print(GREEN + f"[OK] 详细来源显示已{status}" + RESET)
             continue
 
         # ---- 执行问答 ----
         logger.info(f"用户问题: {user_input}")
-        print(YELLOW + "⏳ 正在检索知识库..." + RESET)
+        print(YELLOW + "正在检索知识库..." + RESET)
 
         try:
             result = qa_chain.invoke({"question": user_input})
@@ -188,7 +188,7 @@ def main():
 
         # 调试模式：显示原始片段
         if show_raw and source_docs:
-            print(YELLOW + "\n🔍 检索片段（原始）:" + RESET)
+            print(YELLOW + "\n[Debug]检索片段（原始）:" + RESET)
             for i, doc in enumerate(source_docs, 1):
                 content_preview = doc.page_content[:200].replace("\n", " ")
                 source = doc.metadata.get("source", "未知")
