@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>专业课程答疑 · CourseQA</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ============================================================
+     Design Token System — CourseQA
+     Palette: deep navy + scholarly gold + warm paper white
+     Typography: Crimson Text (display) / Inter (body) / JetBrains Mono (code)
+     Signature: academic footnote-style source citations
+     ============================================================ */
+
+  :root {
+    --ink:        #0f1a2e;
+    --ink-light:  #1a2d4a;
+    --gold:       #c8963e;
+    --gold-light: #e6b85c;
+    --paper:      #faf9f6;
+    --paper-warm: #f3f0ea;
+    --white:      #ffffff;
+    --text:       #2d3748;
+    --text-light: #64748b;
+    --text-muted: #94a3b8;
+    --border:     #e8e4dd;
+    --green:      #1e4620;
+    --green-bg:   #eef4ee;
+    --red:        #b91c1c;
+    --red-bg:     #fef2f2;
+    --shadow-sm:  0 1px 3px rgba(15, 26, 46, 0.06);
+    --shadow-md:  0 4px 24px rgba(15, 26, 46, 0.10);
+    --shadow-lg:  0 12px 48px rgba(15, 26, 46, 0.14);
+    --radius-sm:  8px;
+    --radius-md:  14px;
+    --radius-lg:  22px;
+    --font-display: 'Crimson Text', Georgia, 'Times New Roman', serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono:    'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  }
+
+  /* ---- Reset ---- */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- Layout ---- */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--white);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* ---- Header ---- */
+  .header {
+    background: var(--ink);
+    color: var(--white);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .header-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    background: var(--gold);
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .header h1 {
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--white);
+  }
+
+  .header-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-header {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.75);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: var(--font-body);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-header:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.35);
+    color: var(--white);
+  }
+
+  /* ---- Chat Area ---- */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 28px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    scroll-behavior: smooth;
+    background:
+      linear-gradient(to bottom, var(--white) 0%, transparent 40px),
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 79px,
+        var(--border) 79px,
+        var(--border) 80px
+      );
+    background-color: var(--white);
+    background-position: 0 0, 0 -4px;
+  }
+
+  @media (max-width: 600px) {
+    .chat { padding: 20px 16px 8px; gap: 16px; }
+    .header { padding: 12px 16px; }
+  }
+
+  /* ---- Welcome ---- */
+  .welcome {
+    text-align: center;
+    padding: 40px 20px 20px;
+    animation: fadeUp 0.6s ease-out;
+  }
+
+  .welcome h2 {
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+
+  .welcome p {
+    color: var(--text-light);
+    font-size: 14px;
+    max-width: 420px;
+    margin: 0 auto;
+    line-height: 1.7;
+  }
+
+  .welcome-hints {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 18px;
+  }
+
+  .welcome-hint {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text-light);
+    cursor: pointer;
+    transition: all 0.18s;
+    font-family: var(--font-body);
+  }
+
+  .welcome-hint:hover {
+    background: var(--ink);
+    color: var(--white);
+    border-color: var(--ink);
+  }
+
+  /* ---- Message ---- */
+  .message {
+    display: flex;
+    gap: 12px;
+    animation: fadeUp 0.35s ease-out;
+  }
+
+  .message-user {
+    flex-direction: row-reverse;
+  }
+
+  .avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .avatar-user {
+    background: var(--ink);
+    color: var(--white);
+    font-family: var(--font-display);
+  }
+
+  .avatar-bot {
+    background: var(--paper-warm);
+    color: var(--gold);
+    font-size: 17px;
+  }
+
+  .bubble {
+    max-width: 76%;
+    padding: 14px 20px;
+    border-radius: var(--radius-md);
+    line-height: 1.65;
+    font-size: 14px;
+  }
+
+  .message-user .bubble {
+    background: var(--ink);
+    color: var(--white);
+    border-bottom-right-radius: 4px;
+  }
+
+  .message-bot .bubble {
+    background: var(--paper);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  .bubble p + p { margin-top: 0.6em; }
+
+  /* ---- Sources (academic footnote signature) ---- */
+  .sources {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    position: relative;
+  }
+
+  .sources::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 0;
+    width: 24px;
+    height: 2px;
+    background: var(--gold);
+  }
+
+  .sources-label {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 12px;
+    color: var(--green);
+    letter-spacing: 0.03em;
+    margin-bottom: 6px;
+  }
+
+  .source-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-light);
+    line-height: 1.5;
+    padding: 2px 0;
+  }
+
+  .source-item .num {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--gold);
+    min-width: 14px;
+  }
+
+  .source-item .file {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .source-item .page {
+    color: var(--text-muted);
+  }
+
+  .source-item .score {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  /* ---- Typing Indicator ---- */
+  .typing {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+  }
+
+  .typing .bubble {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 16px 22px;
+  }
+
+  .typing-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+
+  .typing-dot:nth-child(1) { animation-delay: 0s; }
+  .typing-dot:nth-child(2) { animation-delay: 0.16s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.55); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- Input Bar ---- */
+  .input-bar {
+    padding: 16px 28px 20px;
+    background: var(--white);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .input-bar::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 28px;
+    right: 28px;
+    height: 10px;
+    background: linear-gradient(to bottom, transparent, var(--white));
+    pointer-events: none;
+  }
+
+  .input-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 8px 8px 8px 20px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .input-wrap:focus-within {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(200, 150, 62, 0.12);
+    background: var(--white);
+  }
+
+  .input-wrap textarea {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    outline: none;
+    min-height: 22px;
+    max-height: 120px;
+    padding: 4px 0;
+    align-self: center;
+  }
+
+  .input-wrap textarea::placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .btn-send {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: var(--ink);
+    color: var(--white);
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.18s;
+  }
+
+  .btn-send:hover {
+    background: var(--gold);
+    transform: scale(1.05);
+  }
+
+  .btn-send:active {
+    transform: scale(0.96);
+  }
+
+  .btn-send:disabled {
+    background: var(--border);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-send svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .input-hints {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 16px;
+  }
+
+  .input-hints span {
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+
+  .input-hints span:hover {
+    color: var(--gold);
+  }
+
+  /* ---- Scrollbar ---- */
+  .chat::-webkit-scrollbar { width: 5px; }
+  .chat::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 10px;
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 600px) {
+    .bubble { max-width: 85%; padding: 12px 16px; font-size: 13px; }
+    .input-bar { padding: 12px 16px 16px; }
+    .input-bar::before { left: 16px; right: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-icon">&#120591;</div>
+      <div>
+        <h1>专业课程答疑</h1>
+        <div class="header-subtitle">Course Q&A Agent</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-header" onclick="resetChat()" title="清空对话记忆">清空记忆</button>
+    </div>
+  </header>
+
+  <!-- Chat -->
+  <main class="chat" id="chat">
+    <div class="welcome">
+      <h2>你好，我是你的课程助教</h2>
+      <p>覆盖数据结构、操作系统、计算机网络、软件工程概论等核心课程。我会优先基于知识库回答，并标注引用来源。</p>
+      <div class="welcome-hints">
+        <button class="welcome-hint" onclick="askHint('什么是堆排序？')">堆排序</button>
+        <button class="welcome-hint" onclick="askHint('死锁的四个必要条件')">死锁</button>
+        <button class="welcome-hint" onclick="askHint('TCP 三次握手的过程')">TCP 三次握手</button>
+        <button class="welcome-hint" onclick="askHint('二叉树的遍历方式有哪些？')">二叉树遍历</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Input -->
+  <div class="input-bar">
+    <div class="input-wrap">
+      <textarea
+        id="questionInput"
+        rows="1"
+        placeholder="输入你的课程问题…"
+        onkeydown="handleKeyDown(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <button class="btn-send" id="sendBtn" onclick="sendQuestion()" aria-label="发送">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5"></line>
+          <polyline points="5 12 12 5 19 12"></polyline>
+        </svg>
+      </button>
+    </div>
+    <div class="input-hints">
+      <span onclick="resetChat()">/reset 清空记忆</span>
+      <span>Enter 发送</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- State ----
+  let isWaiting = false;
+
+  // ---- Auto-resize textarea ----
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  // ---- Keyboard ----
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendQuestion();
+    }
+  }
+
+  // ---- Hint click ----
+  function askHint(question) {
+    document.getElementById('questionInput').value = question;
+    sendQuestion();
+  }
+
+  // ---- Send ----
+  async function sendQuestion() {
+    const input = document.getElementById('questionInput');
+    const question = input.value.trim();
+    if (!question || isWaiting) return;
+
+    const chat = document.getElementById('chat');
+
+    // Remove welcome
+    const welcome = chat.querySelector('.welcome');
+    if (welcome) welcome.remove();
+
+    // Add user message
+    appendMessage('user', question);
+    input.value = '';
+    input.style.height = 'auto';
+
+    // Typing indicator
+    isWaiting = true;
+    document.getElementById('sendBtn').disabled = true;
+    const typingEl = appendTyping();
+
+    scrollBottom();
+
+    try {
+      const resp = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const data = await resp.json();
+
+      // Remove typing
+      typingEl.remove();
+
+      if (data.error) {
+        appendMessage('bot', '抱歉，请求失败：' + data.error, true);
+      } else {
+        appendMessage('bot', data.answer, false, data.sources);
+      }
+    } catch (err) {
+      typingEl.remove();
+      appendMessage('bot', '网络连接失败，请确认服务已启动。', true);
+    }
+
+    isWaiting = false;
+    document.getElementById('sendBtn').disabled = false;
+    document.getElementById('questionInput').focus();
+    scrollBottom();
+  }
+
+  // ---- Append message ----
+  function appendMessage(role, text, isError, sources) {
+    const chat = document.getElementById('chat');
+    const div = document.createElement('div');
+    div.className = 'message message-' + role;
+
+    const avatarClass = role === 'user' ? 'avatar-user' : 'avatar-bot';
+    const avatarText = role === 'user' ? 'U' : '&#120591;';
+
+    div.innerHTML = `
+      <div class="avatar ${avatarClass}">${avatarText}</div>
+      <div class="bubble">
+        ${isError ? '<span style="color:var(--red)">' + escapeHtml(text) + '</span>' : formatAnswer(text)}
+        ${sources && sources.length ? buildSources(sources) : ''}
+      </div>
+    `;
+
+    chat.appendChild(div);
+    return div;
+  }
+
+  // ---- Typing indicator ----
+  function appendTyping() {
+    const chat = document.getElementById('chat');
+    const div = document.createElement('div');
+    div.className = 'typing';
+    div.innerHTML = `
+      <div class="avatar avatar-bot">&#120591;</div>
+      <div class="bubble">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+    `;
+    chat.appendChild(div);
+    return div;
+  }
+
+  // ---- Format answer (light markdown) ----
+  function formatAnswer(text) {
+    let html = escapeHtml(text);
+    // Bold: **text**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Inline code: `text`
+    html = html.replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:0.9em;background:rgba(0,0,0,0.06);padding:2px 5px;border-radius:4px;">$1</code>');
+    // Code blocks: ```...```
+    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      return '<pre style="font-family:var(--font-mono);font-size:0.85em;background:var(--ink);color:#e2e8f0;padding:14px 18px;border-radius:var(--radius-sm);overflow-x:auto;margin:10px 0;line-height:1.55;">' + escapeHtml(code.trim()) + '</pre>';
+    });
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    return html;
+  }
+
+  // ---- Build sources (signature: academic footnote) ----
+  function buildSources(sources) {
+    if (!sources.length) return '';
+    let html = '<div class="sources"><div class="sources-label">参考文献</div>';
+    sources.forEach((s, i) => {
+      html += `
+        <div class="source-item">
+          <span class="num">[${i + 1}]</span>
+          <span class="file">${escapeHtml(s.file)}</span>
+          <span class="page">第${s.page}页</span>
+          ${s.score ? '<span class="score">r=' + s.score.toFixed(3) + '</span>' : ''}
+        </div>
+      `;
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ---- Reset ----
+  async function resetChat() {
+    try {
+      await fetch('/api/reset', { method: 'POST' });
+    } catch (e) { /* ignore */ }
+    const chat = document.getElementById('chat');
+    chat.innerHTML = `
+      <div class="welcome">
+        <h2>对话记忆已清空</h2>
+        <p>开始新的提问吧。</p>
+        <div class="welcome-hints">
+          <button class="welcome-hint" onclick="askHint('什么是堆排序？')">堆排序</button>
+          <button class="welcome-hint" onclick="askHint('死锁的四个必要条件')">死锁</button>
+          <button class="welcome-hint" onclick="askHint('TCP 三次握手的过程')">TCP 三次握手</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---- Helpers ----
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function scrollBottom() {
+    requestAnimationFrame(() => {
+      const chat = document.getElementById('chat');
+      chat.scrollTop = chat.scrollHeight;
+    });
+  }
+
+  // ---- Init ----
+  document.getElementById('questionInput').focus();
+</script>
+
+</body>
+</html>
