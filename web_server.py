@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from flask import Flask, request, jsonify, render_template_string
 
-from src.utils import load_config, setup_logger, mask_key
+from src.utils import load_config, setup_logger
 from src.vectorstore import get_embedding_model, get_vectorstore, get_retriever
 from src.chain import create_qa_chain, ChatHistory
 
@@ -104,8 +104,7 @@ def init_system(config_path: str):
         log_file=log_cfg.get("file", "logs/qa.log"),
         level=log_cfg.get("level", "INFO"),
     )
-    logger.info(f"LLM API Key: {mask_key(config['llm']['api_key'])}")
-    logger.info(f"Embedding API Key: {mask_key(config['embedding']['api_key'])}")
+    logger.info("LLM 和 Embedding API Key 已加载")
 
     # Embedding + 向量库
     embedder = get_embedding_model(config)

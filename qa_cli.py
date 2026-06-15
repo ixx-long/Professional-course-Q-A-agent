@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.utils import load_config, setup_logger, mask_key
+from src.utils import load_config, setup_logger
 from src.vectorstore import get_embedding_model, get_vectorstore, get_retriever
 from src.retriever import load_cross_encoder, create_compression_retriever
 from src.chain import create_qa_chain, ChatHistory, format_source_documents
@@ -97,8 +97,7 @@ def main():
         log_file=log_config.get("file", "logs/qa.log"),
         level=log_config.get("level", "INFO"),
     )
-    logger.info(f"LLM API Key: {mask_key(config['llm']['api_key'])}")
-    logger.info(f"Embedding API Key: {mask_key(config['embedding']['api_key'])}")
+    logger.info("LLM 和 Embedding API Key 已加载")
 
     # ---- 初始化组件 ----
     print(CYAN + "正在初始化系统组件..." + RESET)

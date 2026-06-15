@@ -18,7 +18,7 @@ from pathlib import Path
 # 将项目根目录加入 sys.path，确保 src 模块可导入
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.utils import load_config, setup_logger, mask_key
+from src.utils import load_config, setup_logger
 from src.loader import load_documents
 from src.vectorstore import get_embedding_model, get_vectorstore, add_documents
 
@@ -83,11 +83,6 @@ def main():
         level=log_config.get("level", "INFO"),
     )
 
-    # 脱敏显示 API Key
-    llm_key = config.get("llm", {}).get("api_key", "")
-    emb_key = config.get("embedding", {}).get("api_key", "")
-    logger.info(f"LLM API Key: {mask_key(llm_key)}")
-    logger.info(f"Embedding API Key: {mask_key(emb_key)}")
     logger.info(f"输入目录: {args.input_dir}")
     logger.info(f"分块大小: {args.chunk_size}, 重叠: {args.chunk_overlap}")
 
