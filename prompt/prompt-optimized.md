@@ -13,7 +13,7 @@
 | Embedding | 阿里云百炼 | api_base | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | Embedding | 阿里云百炼 | model_name | `text-embedding-v3` |
 | Embedding | 阿里云百炼 | dimension | `1024` |
-| 重排序 | 本地 | model_name | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| 重排序 | 本地 | model_name | `cross-encoder/ms-marco-MiniLM-L-4-v2` |
 
 > **注意**：生成模型和 Embedding 使用**两套不同的 API Key 和 Base URL**，config.yaml 须分别配置。
 
@@ -60,7 +60,7 @@
 | 文档加载 | PyPDFLoader / Docx2txtLoader / TextLoader | Markdown 作为纯文本加载 |
 | 文本分割 | RecursiveCharacterTextSplitter | chunk_size≈1000, chunk_overlap≈200 |
 | Embedding | 阿里云百炼 `text-embedding-v3` | 1024 维；预留 sentence-transformers 切换 |
-| 重排序 | CrossEncoder `cross-encoder/ms-marco-MiniLM-L-6-v2` | 本地运行；或 LangChain ContextualCompressionRetriever |
+| 重排序 | CrossEncoder `cross-encoder/ms-marco-MiniLM-L-4-v2` | 本地运行；或 LangChain ContextualCompressionRetriever |
 | 记忆 | ConversationBufferMemory / ConversationSummaryBufferMemory | — |
 | Web 界面 | Gradio 或 Streamlit（第二阶段） | — |
 

@@ -232,7 +232,7 @@ def format_source_documents(source_docs: list[Document]) -> str:
         source = doc.metadata.get("source", "未知")
         page = doc.metadata.get("page", "N/A")
         score = doc.metadata.get("rerank_score")
-        score_str = f" (相关度: {score:.3f})" if score else ""
+        score_str = f" (相关度: {score:.3f})" if score is not None else ""
         key = f"{source}#p{page}"
         if key not in seen:
             seen.add(key)

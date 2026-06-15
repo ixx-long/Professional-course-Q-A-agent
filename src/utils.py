@@ -53,6 +53,29 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     if missing:
         raise ValueError(f"配置文件缺少以下段: {', '.join(missing)}")
 
+    # 深度校验：关键字段不能为空
+    if not config["llm"].get("api_key"):
+        raise ValueError("llm.api_key 不能为空")
+    if not config["llm"].get("api_base"):
+        raise ValueError("llm.api_base 不能为空")
+    if not config["embedding"].get("api_key"):
+        raise ValueError("embedding.api_key 不能为空")
+    if not config["embedding"].get("api_base"):
+        raise ValueError("embedding.api_base 不能为空")
+
+    # 数值合理性校验
+    top_k = config["retrieval"].get("top_k", 8)
+    rerank_top_n = config["retrieval"].get("rerank_top_n", 4)
+    if not (1 <= top_k <= 100):
+        raise ValueError(f"retrieval.top_k 应在 1-100 之间，当前值: {top_k}")
+    if not (1 <= rerank_top_n <= top_k):
+        raise ValueError(f"retrieval.rerank_top_n 应在 1-top_k 之间，当前值: {rerank_top_n}")
+
+    # memory.max_turns 合理性
+    max_turns = config["memory"].get("max_turns", 4)
+    if not (1 <= max_turns <= 50):
+        raise ValueError(f"memory.max_turns 应在 1-50 之间，当前值: {max_turns}")
+
     return config
 
 
@@ -85,9 +108,9 @@ def setup_logger(
     """
     logger = logging.getLogger(name)
 
-    # 避免重复添加 handler
+    # 如果已配置过且名称相同，先清理旧 handler 再重新配置
     if logger.handlers:
-        return logger
+        logger.handlers.clear()
 
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 

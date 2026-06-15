@@ -14,6 +14,9 @@ import argparse
 import logging
 import json
 import atexit
+import threading
+import re
+import base64
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,29 +31,31 @@ app = Flask(__name__)
 
 # ---- 全局组件（延迟初始化）----
 qa_chain = None
-sessions: dict = {}  # session_id → ChatHistory（多用户隔离）
+sessions: dict = {}       # session_id → ChatHistory（多用户隔离）
+sessions_lock = threading.Lock()  # 并发保护
 config = None
 logger = None
-retriever = None      # 供 _ask_with_image 和课程筛选使用
-llm = None            # 供 _ask_with_image 使用
-vectorstore = None    # 供课程筛选检索使用
+retriever = None          # 供 _ask_with_image 和课程筛选使用
+llm = None                # 供 _ask_with_image 使用
+vectorstore = None        # 供课程筛选检索使用
 SESSIONS_FILE = Path(__file__).parent / "data" / "sessions.json"
 
 
 def _save_sessions():
-    """持久化所有 session 对话历史到 JSON 文件。"""
+    """持久化所有 session 对话历史到 JSON 文件（线程安全）。"""
     global sessions
     try:
-        data = {}
-        for sid, ch in sessions.items():
-            msgs = []
-            for m in ch.messages[-100:]:  # 每 session 最多保存 100 条消息
-                msgs.append({
-                    "role": "user" if m.__class__.__name__ == "HumanMessage" else "bot",
-                    "content": m.content,
-                })
-            if msgs:
-                data[sid] = msgs
+        with sessions_lock:
+            data = {}
+            for sid, ch in sessions.items():
+                msgs = []
+                for m in ch.messages[-100:]:
+                    msgs.append({
+                        "role": "user" if m.__class__.__name__ == "HumanMessage" else "bot",
+                        "content": m.content,
+                    })
+                if msgs:
+                    data[sid] = msgs
         SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
         SESSIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
@@ -140,11 +145,12 @@ def init_system(config_path: str):
 
 
 def _get_session(session_id: str) -> ChatHistory:
-    """获取或创建 session 对应的 ChatHistory。"""
+    """获取或创建 session 对应的 ChatHistory（线程安全）。"""
     global sessions
-    if session_id not in sessions:
-        sessions[session_id] = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
-    return sessions[session_id]
+    with sessions_lock:
+        if session_id not in sessions:
+            sessions[session_id] = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+        return sessions[session_id]
 
 
 def load_index_html() -> str:
@@ -186,6 +192,17 @@ def api_ask():
 
     if not question and not image_b64:
         return jsonify({"error": "问题不能为空"}), 400
+
+    # 图片校验
+    if image_b64:
+        img_err = _validate_image(image_b64)
+        if img_err:
+            return jsonify({"error": f"图片无效: {img_err}"}), 400
+        # 视觉模型检查
+        model_name = config.get("llm", {}).get("model_name", "")
+        if "vision" not in model_name.lower() and "gpt-4" not in model_name.lower() \
+           and "claude" not in model_name.lower() and "gemini" not in model_name.lower():
+            return jsonify({"error": "当前模型不支持图片问答，请使用文本提问"}), 400
 
     chat_history = _get_session(session_id)
     display_text = question or "[图片提问]"
@@ -232,10 +249,32 @@ def api_ask():
     })
 
 
+def _validate_image(image_b64: str) -> str | None:
+    """校验图片 base64。通过返回 None，失败返回错误消息。"""
+    if not image_b64 or not isinstance(image_b64, str):
+        return "图片数据为空或格式错误"
+    if len(image_b64) > 10 * 1024 * 1024:  # 10MB base64 ≈ 7.5MB raw
+        return "图片过大（最大 10MB）"
+    # 检查是否为有效 data URL 或纯 base64
+    if image_b64.startswith("data:image/"):
+        # data URL 格式
+        if not re.match(r'^data:image/(png|jpeg|jpg|gif|webp);base64,', image_b64):
+            return "不支持的图片格式（支持 PNG/JPEG/GIF/WebP）"
+        try:
+            base64.b64decode(image_b64.split(",", 1)[1], validate=True)
+        except Exception:
+            return "图片 base64 编码无效"
+    else:
+        try:
+            base64.b64decode(image_b64, validate=True)
+        except Exception:
+            return "图片 base64 编码无效"
+    return None  # OK
+
+
 def _get_filtered_retriever(course: str):
     """获取带课程筛选的 retriever。"""
     global vectorstore
-    from src.vectorstore import get_retriever
     return vectorstore.as_retriever(
         search_type="similarity",
         search_kwargs={
@@ -259,20 +298,20 @@ def _extract_sources(source_docs: list) -> list:
             sources.append({
                 "file": source,
                 "page": page,
-                "score": round(float(score), 4) if score else None,
+                "score": round(float(score), 4) if score is not None else None,
             })
     return sources
 
 
 def _ask_with_image(question: str, image_b64: str, session_id: str = "default"):
-    """多模态问答：检索文档 + 图片 + LLM 直调。"""
+    """多模态问答：使用与文本一致的检索链路 + 图片 + LLM 直调。"""
     global retriever, llm, config
 
     chat_history = _get_session(session_id)
 
-    # 1. 用文本检索相关文档
+    # 1. 使用统一检索链路（与文本路径一致）
     search_query = question or "请描述这张图片的内容"
-    raw_docs = retriever.invoke(search_query)[:4]
+    raw_docs = retriever.invoke(search_query)[:config["retrieval"]["rerank_top_n"]]
     context = "\n\n".join(
         f"[来源: {d.metadata.get('source','?')} p{d.metadata.get('page','?')}]\n{d.page_content[:600]}"
         for d in raw_docs

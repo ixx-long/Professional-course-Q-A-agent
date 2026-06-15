@@ -120,6 +120,19 @@ def main():
     except Exception as e:
         logger.error(f"初始化向量库失败: {e}")
         sys.exit(1)
+
+    # --force: 清空旧集合后重建
+    if args.force:
+        try:
+            collection_name = config.get("chroma", {}).get("collection_name", "course_materials")
+            vectorstore._client.delete_collection(collection_name)
+            logger.info(f"已清空旧集合: {collection_name}")
+            # 重建 Chroma 实例
+            vectorstore = get_vectorstore(config, embedder)
+            print("  [OK] 旧集合已清空，开始全量重建")
+        except Exception as e:
+            logger.warning(f"清空旧集合失败（可能不存在）: {e}")
+
     print("  [OK] Chroma 向量库已就绪")
 
     # ---- 添加文档 ----

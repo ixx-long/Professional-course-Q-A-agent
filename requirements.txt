@@ -3,8 +3,13 @@
 langchain==0.3.13
 langchain-classic==0.3.13
 langchain-community==0.3.13
+langchain-core==0.3.28
+langchain-text-splitters==0.3.5
 langchain-openai==0.2.14
 langchain-chroma==0.2.1
+
+# OpenAI SDK（BailianEmbeddings 直接依赖）
+openai>=1.0
 
 # Chroma 向量数据库
 chromadb==0.5.23

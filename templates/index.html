@@ -486,24 +486,46 @@
 
   function renderHistory() {
     const list = document.getElementById('historyList');
-    const filtered = currentCourse === 'all' ? conversationHistory : conversationHistory.filter(h => h.course === currentCourse);
-    list.innerHTML = '<div class="sidebar-history-label">对话历史</div>' +
-      filtered.map(h => `<div class="history-item" onclick="alert('切换历史功能开发中')" title="${escapeAttr(h.title)}">${escapeHtml(h.title.substring(0,28))}${h.title.length>28?'…':''}</div>`).join('');
+    const saved = JSON.parse(localStorage.getItem('courseqa_sessions') || '{}');
+    const entries = Object.entries(saved).sort((a,b) => b[1].time - a[1].time);
+    let html = '<div class="sidebar-history-label">对话历史</div>';
+    if (entries.length === 0) {
+      html += '<div style="padding:8px 12px;font-size:11px;color:rgba(255,255,255,0.3)">暂无历史对话</div>';
+    } else {
+      for (const [sid, info]) of entries) {
+        const title = (info.title || '新对话').substring(0, 28);
+        const isActive = sid === SESSION_ID;
+        html += `<div class="history-item${isActive ? ' active' : ''}" onclick="switchSession('${sid}')" title="${escapeAttr(info.title)}">${escapeHtml(title)}</div>`;
+      }
+    }
+    list.innerHTML = html;
   }
 
   function newChat() {
-    document.getElementById('chatInner').innerHTML = `
-      <div class="welcome">
-        <h2>新对话</h2>
-        <p>选择课程或直接提问开始。</p>
-        <div class="welcome-grid">
-          <div class="welcome-card" onclick="askHint('什么是堆排序？它的时间复杂度是多少？')"><span class="icon">&#9654;</span>堆排序的原理与复杂度</div>
-          <div class="welcome-card" onclick="askHint('死锁产生的四个必要条件是什么？')"><span class="icon">&#9654;</span>死锁的条件与预防</div>
-          <div class="welcome-card" onclick="askHint('TCP三次握手的过程是怎样的？')"><span class="icon">&#9654;</span>TCP 三次握手过程</div>
-          <div class="welcome-card" onclick="askHint('二叉树的遍历方式有哪些？')"><span class="icon">&#9654;</span>二叉树的遍历方式</div>
-        </div>
-      </div>`;
+    // 生成新 session_id，保存旧 session 到历史列表，刷新页面
+    const oldSid = SESSION_ID;
+    const titles = [];
+    document.querySelectorAll('.msg-you .msg-bubble').forEach(b => {
+      const t = b.textContent.trim();
+      if (t) titles.push(t.substring(0, 30));
+    });
+    if (titles.length > 0) {
+      const saved = JSON.parse(localStorage.getItem('courseqa_sessions') || '{}');
+      saved[oldSid] = { title: titles[0], time: Date.now() };
+      localStorage.setItem('courseqa_sessions', JSON.stringify(saved));
+    }
+    // 重置当前 session 的服务端数据
     fetch('/api/reset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({session_id: SESSION_ID}) }).catch(()=>{});
+    // 生成新 session_id
+    const newSid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+    localStorage.setItem('courseqa_session_id', newSid);
+    location.reload();
+  }
+
+  function switchSession(sid) {
+    if (sid === SESSION_ID) return;
+    localStorage.setItem('courseqa_session_id', sid);
+    location.reload();
   }
 
   // ============ HINT ============
@@ -586,13 +608,22 @@
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body),
       });
-      const data = await resp.json();
+      let data;
+      try { data = await resp.json(); } catch (e) { data = null; }
       typingEl.remove();
-      if (data.error) {
+
+      if (!resp.ok || !data) {
+        const statusMsg = resp.status === 503 ? '服务正在启动，请稍后刷新重试'
+          : resp.status === 429 ? '请求过于频繁，请稍后重试'
+          : resp.status >= 500 ? '服务器内部错误，请稍后重试'
+          : '请求失败 (HTTP ' + resp.status + ')';
+        appendBotMsg(statusMsg, null, true);
+      } else if (data.error) {
         const errMap = {
           '超时': '请求超时，请稍后重试',
           'API Key': 'API Key 无效，请检查 config.yaml 配置',
-          '限流': '请求过于频繁，请稍后重试',
+          '模型不支持图片': '当前模型不支持图片问答，请使用文本提问',
+          '图片无效': data.error,
         };
         const friendly = Object.entries(errMap).find(([k]) => data.error.includes(k))?.[1] || data.error;
         appendBotMsg(friendly, null, true);
@@ -652,7 +683,7 @@
     if (!sources || !sources.length) return '';
     let html = '<div class="footnotes"><div class="fn-label">参考文献</div>';
     sources.forEach((s,i) => {
-      html += `<div class="fn-item"><span class="fn-num">[${i+1}]</span><span>${escapeHtml(s.file)} &middot; 第${s.page}页${s.score ? ' &middot; r='+s.score.toFixed(3) : ''}</span></div>`;
+      html += `<div class="fn-item"><span class="fn-num">[${i+1}]</span><span>${escapeHtml(s.file)} &middot; 第${s.page}页${s.score != null ? ' &middot; r='+s.score.toFixed(3) : ''}</span></div>`;
     });
     return html + '</div>';
   }
