@@ -110,12 +110,13 @@ def main():
         logger.error(f"加载文档失败: {e}")
         sys.exit(1)
 
-    # 注入课程元数据（供检索时按课程筛选）
+    # 注入课程元数据：--course 仅补充未自动检测到课程的文档
     if args.course:
         for doc in documents:
-            doc.metadata["course"] = args.course
-        logger.info(f"课程标签: {args.course}")
-        print(f"  [OK] 课程标签: {args.course}")
+            if not doc.metadata.get("course"):
+                doc.metadata["course"] = args.course
+        logger.info(f"课程标签（手动补充）: {args.course}")
+        print(f"  [OK] 课程标签: {args.course}（已补充到未自动标注的文档）")
 
     logger.info(f"加载完成: {len(documents)} 个文本块")
     print(f"  [OK] 共加载 {len(documents)} 个文本块")

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.utils import load_config, setup_logger
 from src.vectorstore import get_embedding_model, get_vectorstore, get_retriever
 from src.chain import create_qa_chain, ChatHistory, get_llm
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 
 def load_test_cases(file_path: str) -> list:
@@ -101,7 +101,21 @@ def main():
     print("初始化系统组件...")
     embedder = get_embedding_model(config)
     vectorstore = get_vectorstore(config, embedder)
-    retriever = get_retriever(vectorstore, top_k=config["retrieval"]["top_k"])
+    base_retriever = get_retriever(vectorstore, top_k=config["retrieval"]["top_k"])
+
+    # 加载 CrossEncoder（与生产环境一致）
+    try:
+        from src.retriever import load_cross_encoder, create_compression_retriever
+        ce = load_cross_encoder(
+            model_name=config["reranker"]["model_name"],
+            cache_dir=config["reranker"].get("cache_dir", "./models"),
+        )
+        retriever = create_compression_retriever(base_retriever, ce, config["retrieval"])
+        print("  [OK] 重排序模型已加载")
+    except Exception as e:
+        print(f"  [警告] 重排序加载失败，使用基础检索: {e}")
+        retriever = base_retriever
+
     llm = get_llm(config)
     qa_chain = create_qa_chain(retriever, config)
 
@@ -111,10 +125,9 @@ def main():
         cases = cases[:args.sample]
     print(f"加载 {len(cases)} 条测试用例")
 
-    # 逐条评估
+    # 逐条评估（每条独立 ChatHistory，避免评估污染）
     results = []
     total_score = 0
-    chat_history = ChatHistory()
 
     for i, case in enumerate(cases, 1):
         question = case["question"]
@@ -122,6 +135,9 @@ def main():
         print(f"\n[{i}/{len(cases)}] {question[:50]}...")
 
         try:
+            # 每条测试用例独立 ChatHistory
+            chat_history = ChatHistory()
+
             # QA
             start = time.time()
             result = qa_chain.invoke({
@@ -149,10 +165,6 @@ def main():
             })
 
             print(f"  评分: {score}/5 | 耗时: {elapsed:.1f}s | {judgment['reason'][:50]}")
-
-            # 更新历史（仅保留上一轮，避免上下文混淆）
-            chat_history.add_user(question)
-            chat_history.add_ai(answer)
 
         except Exception as e:
             logger.error(f"[{i}] 评估失败: {e}")

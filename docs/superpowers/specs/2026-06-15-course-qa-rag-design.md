@@ -22,7 +22,7 @@
 | 生成模型 | DeepSeek `deepseek-chat` | OpenAI 兼容接口 |
 | Embedding | 阿里云百炼 `text-embedding-v3` | 1024 维 |
 | 向量库 | Chroma（持久化） | 轻量，Python 原生 |
-| 重排序 | CrossEncoder `ms-marco-MiniLM-L-6-v2` | 本地 CPU 运行 |
+| 重排序 | CrossEncoder `ms-marco-MiniLM-L-4-v2` | 本地 CPU 运行 |
 | 编排 | LangChain | ConversationalRetrievalChain |
 | 记忆 | ConversationBufferMemory | 最近 4 轮 |
 | Web UI | Gradio（第二阶段） | — |

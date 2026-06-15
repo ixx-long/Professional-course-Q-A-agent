@@ -23,3 +23,6 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+# 临时/审核文件
+p.md

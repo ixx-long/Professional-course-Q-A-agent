@@ -15,7 +15,7 @@
 - 文档加载：PyPDFLoader、Docx2txtLoader、TextLoader（Markdown 作为纯文本）
 - 文本分割：RecursiveCharacterTextSplitter
 - Embedding：OpenAIEmbeddings（或 sentence-transformers 本地模型，需可配置）
-- 重排序：使用 CrossEncoder（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`）或 LangChain 的 `ContextualCompressionRetriever` 配合 `LLMChainExtractor` / `CrossEncoderReranker`
+- 重排序：使用 CrossEncoder（如 `cross-encoder/ms-marco-MiniLM-L-4-v2`）或 LangChain 的 `ContextualCompressionRetriever` 配合 `LLMChainExtractor` / `CrossEncoderReranker`
 - 记忆模块：`ConversationBufferMemory` 或 `ConversationSummaryBufferMemory`
 - Web 界面（可选，但提供命令行交互脚本作为核心演示）
 

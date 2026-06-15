@@ -35,14 +35,15 @@ class BailianEmbeddings(Embeddings):
     此类使用原生 openai 库直接调用，避免兼容性问题。
     """
 
-    def __init__(self, api_key: str, base_url: str, model: str = "text-embedding-v3"):
+    def __init__(self, api_key: str, base_url: str, model: str = "text-embedding-v3", batch_size: int = 25):
         self.client = OpenAI(api_key=api_key, base_url=base_url, max_retries=3, timeout=30.0)
         self.model = model
+        self.batch_size = batch_size
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """批量生成文档嵌入。每批最多 25 条，自动重试 3 次。"""
+        """批量生成文档嵌入。每批最多 batch_size 条，自动重试 3 次。"""
         results: list[list[float]] = []
-        batch_size = 25
+        batch_size = self.batch_size
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
             for attempt in range(3):
@@ -110,6 +111,7 @@ def get_embedding_model(config: dict[str, Any]) -> Embeddings:
             api_key=emb_config["api_key"],
             base_url=emb_config["api_base"],
             model=emb_config.get("model_name", "text-embedding-v3"),
+            batch_size=emb_config.get("batch_size", 25),
         )
 
 

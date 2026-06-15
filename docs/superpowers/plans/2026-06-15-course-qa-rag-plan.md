@@ -108,7 +108,7 @@ retrieval:
 # 重排序模型配置
 # ============================================================
 reranker:
-  model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  model_name: "cross-encoder/ms-marco-MiniLM-L-4-v2"
   cache_dir: "./models"
 
 # ============================================================
@@ -749,7 +749,7 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models"):
     加载 CrossEncoder 模型（带缓存处理）。
 
     Args:
-        model_name: HuggingFace 模型名称，如 'cross-encoder/ms-marco-MiniLM-L-6-v2'。
+        model_name: HuggingFace 模型名称，如 'cross-encoder/ms-marco-MiniLM-L-4-v2'。
         cache_dir: 模型缓存目录。
 
     Returns:
@@ -759,7 +759,7 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models"):
         ImportError: sentence-transformers 未安装时抛出。
 
     用法:
-        ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-6-v2", "./models")
+        ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-4-v2", "./models")
     """
     try:
         from sentence_transformers import CrossEncoder

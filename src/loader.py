@@ -38,9 +38,40 @@ LOADER_MAP: Dict[str, type] = {
 }
 
 
-def _get_loader(file_path: Path) -> type:
+# 已知的课程名称关键词（用于从路径自动检测课程标签）
+_COURSE_KEYWORDS = ["数据结构", "操作系统", "计算机网络", "软件工程", "计算机组成", "数据库", "编译原理"]
+
+def _detect_course(file_path: Path) -> str | None:
+    """从文件路径中自动检测所属课程。
+
+    检查路径的每一级目录名是否包含已知课程关键词。
     """
-    根据文件扩展名返回对应的 LangChain Loader 类。
+    for part in file_path.parts:
+        for kw in _COURSE_KEYWORDS:
+            if kw in part:
+                return kw
+    return None
+
+def _load_text_with_fallback(file_path: str, loader_cls: type) -> list:
+    """加载文本文件，UTF-8 优先，失败回退 GBK/GB2312。"""
+    encodings = ["utf-8", "gbk", "gb2312"]
+    for enc in encodings:
+        try:
+            loader = loader_cls(file_path, encoding=enc)
+            docs = loader.load()
+            logger.debug(f"文件 {file_path} 使用 {enc} 编码加载成功")
+            return docs
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    # 所有常见编码失败：使用 Python open + errors=replace 兜底
+    logger.warning(f"文件 {file_path} 编码检测失败，使用 utf-8 + errors=replace 兜底")
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    return [Document(page_content=content, metadata={"source": Path(file_path).name})]
+
+
+def _get_loader(file_path: Path) -> type:
+    """根据文件扩展名返回对应的 LangChain Loader 类。
 
     Args:
         file_path: 文件路径。
@@ -77,12 +108,12 @@ def load_single_document(file_path: Path) -> List[Document]:
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     loader_cls = _get_loader(file_path)
-    # PDF 用默认参数，文本类 Loader 需要显式指定 UTF-8 编码（Windows 兼容）
+    # PDF 用默认参数，文本类 Loader 尝试 UTF-8 优先，失败回退 GBK
     if file_path.suffix.lower() == ".pdf":
         loader = loader_cls(str(file_path))
+        docs = loader.load()
     else:
-        loader = loader_cls(str(file_path), encoding="utf-8")
-    docs = loader.load()
+        docs = _load_text_with_fallback(str(file_path), loader_cls)
 
     is_pdf = file_path.suffix.lower() == ".pdf"
 
@@ -161,6 +192,11 @@ def load_documents(input_dir: str, chunk_size: int = 1000, chunk_overlap: int = 
             if file_path.suffix.lower() in supported_exts:
                 try:
                     docs = load_single_document(file_path)
+                    # 自动检测课程标签（从目录结构）
+                    course = _detect_course(file_path)
+                    if course:
+                        for doc in docs:
+                            doc.metadata["course"] = course
                     all_docs.extend(docs)
                 except Exception as e:
                     # 单个文件加载失败不中断整体流程

@@ -90,12 +90,12 @@ def _rerank_with_cross_encoder(
     scored_docs = list(zip(scores, documents))
     scored_docs.sort(key=lambda x: x[0], reverse=True)
 
-    # 取 top_n
-    top_docs = [doc for _, doc in scored_docs[:top_n]]
-
-    # 将 CrossEncoder 分数写入 metadata 供引用
+    # 取 top_n，复制文档避免污染原始对象 metadata
+    top_docs: list[Document] = []
     for score, doc in scored_docs[:top_n]:
-        doc.metadata["rerank_score"] = float(score)
+        doc_copy = doc.copy()
+        doc_copy.metadata["rerank_score"] = float(score)
+        top_docs.append(doc_copy)
 
     logger.debug(
         f"重排序: {len(documents)} -> {len(top_docs)} 个文档, "
@@ -137,7 +137,12 @@ def retrieve_and_rerank(
         reranked = _rerank_with_cross_encoder(query, raw_docs, cross_encoder, top_n)
         return reranked, raw_docs
     else:
-        # 候选数不足 top_n 时，全部保留
+        # 候选数不足 top_n 时，仍需打分以保持 source.retrieval_score 一致性
+        if cross_encoder is not None and raw_docs:
+            pairs = [(query, doc.page_content) for doc in raw_docs]
+            scores = cross_encoder.predict(pairs)
+            for score, doc in zip(scores, raw_docs):
+                doc.metadata["rerank_score"] = float(score)
         logger.debug(f"候选文档不足 {top_n}，全部保留")
         return raw_docs[:top_n], raw_docs
 

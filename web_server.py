@@ -17,11 +17,12 @@ import atexit
 import threading
 import re
 import base64
+import time as _time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, send_file
 
 from src.utils import load_config, setup_logger
 from src.vectorstore import get_embedding_model, get_vectorstore, get_retriever
@@ -39,7 +40,14 @@ retriever = None          # 供 _ask_with_image 和课程筛选使用
 llm = None                # 供 _ask_with_image 使用
 vectorstore = None        # 供课程筛选检索使用
 SESSIONS_FILE = Path(__file__).parent / "data" / "sessions.json"
-_filtered_chains: dict = {}  # 课程筛选 Chain 缓存
+_filtered_chains: dict = {}           # 课程筛选 Chain 缓存
+_filtered_chains_lock = threading.Lock()   # _filtered_chains 并发保护
+_filtered_chains_times: dict = {}          # 各 Chain 缓存时间戳（LRU 淘汰用）
+_MAX_FILTERED_CHAINS = 20                 # 缓存上限（防内存泄漏）
+_sessions_dirty = False                    # 脏标记：True 表示有待保存的修改
+_MAX_SESSIONS = 100                        # session 数量上限
+_session_access_times: dict = {}           # session 最后访问时间（LRU 淘汰用）
+_session_tokens: dict = {}                  # session_id → token（简单鉴权）
 
 
 def _save_sessions():
@@ -66,11 +74,12 @@ def _save_sessions():
 
 def _load_sessions():
     """从 JSON 文件恢复对话历史。"""
-    global sessions
+    global sessions, _session_access_times
     if not SESSIONS_FILE.exists():
         return
     try:
         data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
+        now = _time.time()
         for sid, msgs in data.items():
             ch = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
             for m in msgs:
@@ -79,6 +88,7 @@ def _load_sessions():
                 else:
                     ch.add_ai(m["content"])
             sessions[sid] = ch
+            _session_access_times[sid] = now  # 恢复的 session 也纳入 LRU 追踪
         if logger:
             logger.info(f"从文件恢复了 {len(sessions)} 个 session")
     except Exception as e:
@@ -91,20 +101,24 @@ _last_save = 0
 _SESSION_SAVE_INTERVAL = 30
 
 def _save_sessions_throttled():
-    """节流版本：距离上次写入不足 30 秒则跳过。退出时强制写入。"""
-    global _last_save
-    import time
-    now = time.time()
-    if now - _last_save < _SESSION_SAVE_INTERVAL:
+    """节流写盘 + 脏标记。
+
+    设计权衡：为减少磁盘 I/O，30 秒内最多写入一次。若进程在此间隔内被
+    强制终止（SIGKILL/OOM），本次修改丢失——atexit 无法覆盖此类场景。
+    正常退出（Ctrl+C/SIGTERM）由 atexit 兜底，不会丢数据。
+    """
+    global _last_save, _sessions_dirty
+    if not _sessions_dirty:
         return
+    now = _time.time()
+    if now - _last_save < _SESSION_SAVE_INTERVAL:
+        return  # 还没到间隔，但脏标记保持为 True，下次调用会重试
     _last_save = now
+    _sessions_dirty = False
     _save_sessions()
 
 # 注册退出时强制写入
 atexit.register(_save_sessions)
-
-# ---- 内联 HTML 模板（从 templates/index.html 加载或使用内联模板）----
-INDEX_HTML = None  # 延迟加载
 
 
 def init_system(config_path: str):
@@ -155,33 +169,67 @@ def init_system(config_path: str):
     logger.info("系统初始化完成")
 
 
+def _invoke_with_retry(chain, inputs: dict, max_retries: int = 2):
+    """带自动重试的 chain.invoke 调用（指数退避）。"""
+    import time
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return chain.invoke(inputs)
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                delay = 1.5 ** attempt
+                logger.warning(f"Chain 调用失败 (重试 {attempt+1}/{max_retries}，等待 {delay:.1f}s): {e}")
+                time.sleep(delay)
+            else:
+                logger.error(f"Chain 调用失败（已达最大重试次数）: {e}")
+    raise last_err
+
+
+def _validate_token(session_id: str) -> bool:
+    """校验 session 归属：请求头 X-Session-Token 须与首次注册一致。
+
+    首次请求（session 无已注册 token）时自动注册，后续请求必须携带一致 token。
+    不传 token 且 session 已注册 → 拒绝。
+    """
+    token = request.headers.get("X-Session-Token", "")
+    expected = _session_tokens.get(session_id)
+    if expected is None:
+        if token:
+            # 首次请求：注册 token
+            _session_tokens[session_id] = token
+        # 无 token 也允许首次（兼容未配置鉴权的旧客户端首次访问）
+        return True
+    # session 已注册 token：必须匹配
+    return token == expected
+
+
 def _get_session(session_id: str) -> ChatHistory:
-    """获取或创建 session 对应的 ChatHistory（线程安全）。"""
-    global sessions
+    """获取或创建 session 对应的 ChatHistory（线程安全，LRU 淘汰）。"""
+    global sessions, _session_access_times
     with sessions_lock:
         if session_id not in sessions:
+            # LRU 淘汰：超过上限时删除最久未访问的 session
+            if len(sessions) >= _MAX_SESSIONS:
+                oldest_sid = min(_session_access_times, key=_session_access_times.get)
+                del sessions[oldest_sid]
+                del _session_access_times[oldest_sid]
+                _session_tokens.pop(oldest_sid, None)  # 同步清理 token
             sessions[session_id] = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+        _session_access_times[session_id] = _time.time()
         return sessions[session_id]
-
-
-def load_index_html() -> str:
-    """加载前端 HTML 页面。"""
-    template_path = Path(__file__).parent / "templates" / "index.html"
-    if template_path.exists():
-        return template_path.read_text(encoding="utf-8")
-    # 回退：使用内联模板字符串（由 build_frontend.py 生成）
-    return _build_inline_template()
 
 
 # ---- API 路由 ----
 
 @app.route("/")
 def index():
-    """前端页面。"""
-    global INDEX_HTML
-    if INDEX_HTML is None:
-        INDEX_HTML = load_index_html()
-    return render_template_string(INDEX_HTML)
+    """前端页面（使用 send_file 避免 Jinja2 模板注入风险）。"""
+    template_path = Path(__file__).parent / "templates" / "index.html"
+    if template_path.exists():
+        return send_file(str(template_path))
+    return _build_inline_template(), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/api/ask", methods=["POST"])
@@ -200,6 +248,8 @@ def api_ask():
     image_b64 = data.get("image")
     course = data.get("course")
     session_id = data.get("session_id") or "default"
+    if not _validate_token(session_id):
+        return jsonify({"error": "无权操作此会话"}), 403
 
     if not question and not image_b64:
         return jsonify({"error": "问题不能为空"}), 400
@@ -221,19 +271,26 @@ def api_ask():
 
     try:
         if image_b64:
-            answer, source_docs = _ask_with_image(question, image_b64, session_id)
+            answer, source_docs = _ask_with_image(question, image_b64, chat_history)
         else:
-            # 课程筛选：使用缓存 Chain（避免每次重建）
+            # 课程筛选：使用缓存 Chain（避免每次重建，线程安全，有上限）
             if course and course != "all":
-                if course not in _filtered_chains:
-                    _filtered_chains[course] = create_qa_chain(
-                        _get_filtered_retriever(course), config
-                    )
-                chain = _filtered_chains[course]
+                with _filtered_chains_lock:
+                    if course not in _filtered_chains:
+                        # 缓存满时删除最久未使用的条目
+                        if len(_filtered_chains) >= _MAX_FILTERED_CHAINS:
+                            oldest_course = min(_filtered_chains_times, key=_filtered_chains_times.get)
+                            del _filtered_chains[oldest_course]
+                            del _filtered_chains_times[oldest_course]
+                        _filtered_chains[course] = create_qa_chain(
+                            _get_filtered_retriever(course), config
+                        )
+                    _filtered_chains_times[course] = _time.time()
+                    chain = _filtered_chains[course]
             else:
                 chain = qa_chain
 
-            result = chain.invoke({
+            result = _invoke_with_retry(chain, {
                 "question": question,
                 "chat_history": chat_history.get_history(),
             })
@@ -256,6 +313,8 @@ def api_ask():
     # 更新对话历史
     chat_history.add_user(display_text)
     chat_history.add_ai(answer)
+    global _sessions_dirty
+    _sessions_dirty = True
     _save_sessions_throttled()
 
     return jsonify({
@@ -318,11 +377,12 @@ def _extract_sources(source_docs: list) -> list:
     return sources
 
 
-def _ask_with_image(question: str, image_b64: str, session_id: str = "default"):
-    """多模态问答：使用与文本一致的检索链路 + 图片 + LLM 直调。"""
-    global retriever, llm, config
+def _ask_with_image(question: str, image_b64: str, chat_history: ChatHistory):
+    """多模态问答：使用与文本一致的检索链路 + 图片 + LLM 直调。
 
-    chat_history = _get_session(session_id)
+    chat_history 由调用方 api_ask 传入，避免重复 _get_session 查找。
+    """
+    global retriever, llm, config
 
     # 1. 使用统一检索链路（与文本路径一致）
     search_query = question or "请描述这张图片的内容"
@@ -372,8 +432,10 @@ def _ask_with_image(question: str, image_b64: str, session_id: str = "default"):
 
 @app.route("/api/history", methods=["GET"])
 def api_history():
-    """获取当前 session 的对话历史（页面刷新后恢复）。"""
+    """获取当前 session 的对话历史（页面刷新后恢复，需 token 鉴权）。"""
     session_id = request.args.get("session_id") or "default"
+    if not _validate_token(session_id):
+        return jsonify({"error": "无权访问此会话"}), 403
     chat_history = _get_session(session_id)
 
     from langchain_core.messages import HumanMessage, AIMessage
@@ -388,10 +450,14 @@ def api_history():
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
-    """重置当前 session 的对话历史。"""
+    """重置当前 session 的对话历史（需 token 鉴权）。"""
     data = request.get_json() or {}
     session_id = data.get("session_id") or "default"
+    if not _validate_token(session_id):
+        return jsonify({"error": "无权操作此会话"}), 403
     _get_session(session_id).clear()
+    global _sessions_dirty
+    _sessions_dirty = True
     _save_sessions_throttled()
     logger.info(f"[{session_id[:8]}] 对话历史已重置")
     return jsonify({"status": "ok", "message": "对话历史已清空"})
@@ -422,7 +488,7 @@ def main():
     print(f"  按 Ctrl+C 停止服务")
     print("=" * 60)
 
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
 
 
 if __name__ == "__main__":

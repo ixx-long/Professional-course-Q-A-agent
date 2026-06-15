@@ -41,9 +41,12 @@ retrieval:
 
 # ============================================================
 # 重排序模型配置
+#   - 英文模型: cross-encoder/ms-marco-MiniLM-L-4-v2（轻量，英文效果好）
+#   - 中文模型（推荐）: BAAI/bge-reranker-base 或 BAAI/bge-reranker-large（中文效果好）
+#   - 中文模型需约 1GB 磁盘空间，首次运行自动下载
 # ============================================================
 reranker:
-  model_name: "cross-encoder/ms-marco-MiniLM-L-4-v2"
+  model_name: "BAAI/bge-reranker-base"       # 中文课程推荐用中文重排序模型
   cache_dir: "./models"
 
 # ============================================================

@@ -13,12 +13,7 @@ from typing import Any
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
 
 logger = logging.getLogger(__name__)

@@ -34,17 +34,28 @@ def _resolve_from_env(config: Dict[str, Any]) -> Dict[str, Any]:
             config.setdefault(section, {})[key] = val
 
     # 也支持 ${VAR} 占位符语法
+    _unresolved = []
+
     def _resolve(val):
         if isinstance(val, str):
             m = re.match(r'^\$\{(\w+)\}$', val)
-            if m and m.group(1) in os.environ:
-                return os.environ[m.group(1)]
+            if m:
+                var_name = m.group(1)
+                if var_name in os.environ:
+                    return os.environ[var_name]
+                else:
+                    _unresolved.append(var_name)
         return val
 
     for section in config:
         if isinstance(config[section], dict):
             for key in config[section]:
                 config[section][key] = _resolve(config[section][key])
+
+    if _unresolved:
+        logging.getLogger(__name__).warning(
+            f"以下环境变量未设置，占位符未替换: {', '.join(_unresolved)}"
+        )
 
     return config
 
@@ -103,8 +114,6 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
         )
     if not config["llm"].get("api_base"):
         raise ValueError("llm.api_base 不能为空")
-    if not config["embedding"].get("api_key"):
-        raise ValueError("embedding.api_key 不能为空")
     if not config["embedding"].get("api_base"):
         raise ValueError("embedding.api_base 不能为空")
 
