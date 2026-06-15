@@ -49,7 +49,7 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
     cache_path.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"加载 CrossEncoder 模型: {model_name}")
-    model = CrossEncoder(model_name, cache_folder=str(cache_path))
+    model = CrossEncoder(model_name, cache_dir=str(cache_path))
     logger.info("CrossEncoder 模型加载完成")
 
     return model
