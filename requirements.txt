@@ -1,0 +1,22 @@
+# LangChain 核心
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-openai==0.2.14
+langchain-chroma==0.2.1
+
+# Chroma 向量数据库
+chromadb==0.5.23
+
+# 文档解析
+pypdf==5.1.0
+docx2txt==0.8
+
+# 重排序
+sentence-transformers==3.3.1
+
+# 配置与工具
+pyyaml==6.0.2
+tqdm==4.67.1
+
+# CLI 增强（可选）
+colorama==0.4.6

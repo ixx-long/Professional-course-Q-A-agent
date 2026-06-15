@@ -1,0 +1,22 @@
+# 配置文件（含 API Key）
+config.yaml
+
+# 向量库持久化数据
+data/chroma_db/
+
+# 下载的模型
+models/
+
+# 日志
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
