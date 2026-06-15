@@ -1,0 +1,187 @@
+"""
+向量库管理模块。
+
+职责:
+  - 根据配置创建 Embedding 模型（支持阿里云百炼 API 和本地 sentence-transformers）
+  - 初始化/加载 Chroma 向量库（持久化模式）
+  - 文档去重入库（基于 chunk_id）
+  - 获取配置好的 Retriever
+"""
+
+import logging
+from pathlib import Path
+from typing import List, Optional
+
+from langchain_core.documents import Document
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+logger = logging.getLogger(__name__)
+
+
+def get_embedding_model(config: dict):
+    """
+    根据配置创建 Embedding 模型。
+
+    支持两种模式:
+      1. API 模式（阿里云百炼）: 通过 OpenAIEmbeddings + 自定义 api_base 调用
+      2. 本地模式（预留）: 通过 sentence-transformers 本地加载
+
+    Args:
+        config: embedding 段配置字典，需包含:
+            - api_key
+            - api_base
+            - model_name
+
+    Returns:
+        OpenAIEmbeddings 或其他 LangChain 兼容的 Embedding 实例。
+
+    用法:
+        embedder = get_embedding_model(config["embedding"])
+    """
+    emb_config = config["embedding"]
+    # 判断是本地模式还是 API 模式：本地模式下 api_base 可设置为 "local"
+    if emb_config.get("api_base", "").strip() == "local":
+        # 预留本地 sentence-transformers 切换
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        model_name = emb_config.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
+        logger.info(f"使用本地 Embedding 模型: {model_name}")
+        return HuggingFaceEmbeddings(model_name=model_name)
+    else:
+        logger.info(f"使用 API Embedding: {emb_config.get('model_name')} @ {emb_config.get('api_base')}")
+        return OpenAIEmbeddings(
+            model=emb_config.get("model_name", "text-embedding-v3"),
+            api_key=emb_config.get("api_key"),
+            base_url=emb_config.get("api_base"),
+        )
+
+
+def get_vectorstore(config: dict, embedder=None) -> Chroma:
+    """
+    初始化或加载 Chroma 向量库（持久化模式）。
+
+    Args:
+        config: 完整配置字典（需包含 chroma 段）。
+        embedder: Embedding 实例，若为 None 则自动创建。
+
+    Returns:
+        Chroma 向量库实例。
+
+    用法:
+        vectorstore = get_vectorstore(config)
+    """
+    if embedder is None:
+        embedder = get_embedding_model(config)
+
+    chroma_config = config["chroma"]
+    persist_dir = chroma_config["persist_dir"]
+    collection_name = chroma_config.get("collection_name", "course_materials")
+
+    # 确保持久化目录存在
+    Path(persist_dir).mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"加载 Chroma 向量库: collection={collection_name}, persist_dir={persist_dir}")
+
+    vectorstore = Chroma(
+        collection_name=collection_name,
+        embedding_function=embedder,
+        persist_directory=persist_dir,
+    )
+
+    return vectorstore
+
+
+def get_existing_chunk_ids(vectorstore: Chroma) -> set:
+    """
+    获取向量库中已存在的 chunk_id 集合（用于去重）。
+
+    Args:
+        vectorstore: Chroma 向量库实例。
+
+    Returns:
+        已存在的 chunk_id 集合。若集合为空，返回空集。
+    """
+    try:
+        results = vectorstore.get()
+        if results and results["metadatas"]:
+            chunk_ids = {m.get("chunk_id", "") for m in results["metadatas"] if m.get("chunk_id")}
+            logger.debug(f"向量库中已存在 {len(chunk_ids)} 个 chunk_id")
+            return chunk_ids
+    except Exception as e:
+        logger.debug(f"获取已存在 chunk_id 时出错（可能集合为空）: {e}")
+    return set()
+
+
+def add_documents(
+    vectorstore: Chroma,
+    documents: List[Document],
+    skip_existing: bool = True,
+) -> int:
+    """
+    向向量库添加文档，支持去重。
+
+    去重逻辑: 检查文档的 chunk_id 是否已存在于向量库中。
+
+    Args:
+        vectorstore: Chroma 向量库实例。
+        documents: 待添加的 Document 列表。
+        skip_existing: 是否跳过已存在的文档（True=去重，False=全量添加）。
+
+    Returns:
+        实际新增的文档数量。
+
+    用法:
+        added = add_documents(vectorstore, docs)
+        print(f"新增 {added} 个文本块")
+    """
+    if not documents:
+        logger.info("没有需要添加的文档")
+        return 0
+
+    if skip_existing:
+        existing_ids = get_existing_chunk_ids(vectorstore)
+        new_docs = []
+        skipped = 0
+        for doc in documents:
+            chunk_id = doc.metadata.get("chunk_id", "")
+            if chunk_id and chunk_id in existing_ids:
+                skipped += 1
+            else:
+                new_docs.append(doc)
+
+        if skipped > 0:
+            logger.info(f"去重: 跳过 {skipped} 个已存在的文本块，新增 {len(new_docs)} 个")
+
+        if not new_docs:
+            logger.info("所有文档已存在，无需更新")
+            return 0
+        documents = new_docs
+
+    # 批量添加（Chroma 自动生成 embedding）
+    logger.info(f"正在添加 {len(documents)} 个文档到向量库...")
+    vectorstore.add_documents(documents)
+    logger.info(f"成功添加 {len(documents)} 个文档")
+    return len(documents)
+
+
+def get_retriever(vectorstore: Chroma, top_k: int = 8):
+    """
+    获取配置了检索参数的 Retriever。
+
+    Args:
+        vectorstore: Chroma 向量库实例。
+        top_k: 检索返回的候选文档数量。
+
+    Returns:
+        Chroma Retriever 实例。
+
+    用法:
+        retriever = get_retriever(vectorstore, top_k=8)
+        docs = retriever.invoke("什么是堆排序？")
+    """
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": top_k},
+    )
+    logger.debug(f"创建 Retriever: top_k={top_k}")
+    return retriever
