@@ -180,8 +180,8 @@ def create_qa_chain(
 class ChatHistory:
     """对话历史管理器。
 
-    注意：ConversationalRetrievalChain 内部会将 chat_history 转为字符串，
-    因此 get_history 返回格式化的字符串而非 Messages 列表。
+    ConversationalRetrievalChain 接受 list[BaseMessage] 作为 chat_history 输入，
+    内部自动转为字符串后注入 Prompt 模板的 {chat_history} 变量。
     """
 
     def __init__(self, max_turns: int = 4):
@@ -190,22 +190,18 @@ class ChatHistory:
 
     def add_user(self, content: str) -> None:
         """记录用户消息。"""
-        self.messages.append(("用户", content))
+        self.messages.append(HumanMessage(content=content))
 
     def add_ai(self, content: str) -> None:
         """记录 AI 回复。"""
-        self.messages.append(("助手", content))
+        self.messages.append(AIMessage(content=content))
 
-    def get_history(self) -> str:
-        """获取最近 max_turns 轮的格式化历史字符串。"""
+    def get_history(self) -> list:
+        """获取最近 max_turns 轮的消息列表（供 ConversationalRetrievalChain 使用）。"""
         max_messages = self.max_turns * 2
-        recent = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
-        if not recent:
-            return "（暂无历史对话）"
-        lines = []
-        for role, content in recent:
-            lines.append(f"{role}: {content}")
-        return "\n".join(lines)
+        if len(self.messages) > max_messages:
+            return self.messages[-max_messages:]
+        return list(self.messages)
 
     def clear(self) -> None:
         """清空历史。"""
