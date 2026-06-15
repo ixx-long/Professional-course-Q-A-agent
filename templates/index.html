@@ -423,12 +423,58 @@
     btn.classList.add('active');
   }
 
-  // ============ HISTORY ============
-  function addHistory(title) {
+  // ============ RESTORE ON LOAD ============
+  async function restoreFromServer() {
+    try {
+      const resp = await fetch('/api/history');
+      const data = await resp.json();
+      const msgs = data.messages || [];
+      if (!msgs.length) return;
+
+      const chatInner = document.getElementById('chatInner');
+      const welcome = chatInner.querySelector('.welcome');
+      if (welcome) welcome.remove();
+
+      // 清空现有消息，重建全部
+      chatInner.innerHTML = '';
+
+      for (const m of msgs) {
+        if (m.role === 'user') {
+          appendUserMsg(m.content, null);
+          addHistoryItem(m.content);
+        } else {
+          appendBotMsgRestore(m.content);
+        }
+      }
+      scrollBottom();
+    } catch (e) { /* 忽略网络错误 */ }
+  }
+
+  function appendBotMsgRestore(text) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-bot';
+    el.innerHTML = `
+      <div class="msg-avatar">Q</div>
+      <div class="msg-body">
+        <div class="msg-bubble">${formatMarkdown(text)}</div>
+        <div class="msg-actions">
+          <button class="msg-action" onclick="copyAnswer(this)" data-text="${escapeAttr(text)}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制
+          </button>
+        </div>
+      </div>`;
+    document.getElementById('chatInner').appendChild(el);
+  }
+
+  function addHistoryItem(title) {
     conversationHistory.unshift({ id: Date.now(), title, course: currentCourse });
     if (conversationHistory.length > 50) conversationHistory.length = 50;
     renderHistory();
   }
+
+  // ============ HISTORY LIST ============
+  function addHistory(title) { addHistoryItem(title); }
 
   function renderHistory() {
     const list = document.getElementById('historyList');
@@ -627,6 +673,7 @@
 
   // ============ INIT ============
   document.getElementById('questionInput').focus();
+  restoreFromServer();
 </script>
 </body>
 </html>

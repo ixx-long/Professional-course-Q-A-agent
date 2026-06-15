@@ -222,6 +222,23 @@ def _ask_with_image(question: str, image_b64: str):
     return answer, raw_docs
 
 
+@app.route("/api/history", methods=["GET"])
+def api_history():
+    """获取当前对话历史（页面刷新后恢复）。"""
+    global chat_history
+    if not chat_history:
+        return jsonify({"messages": []})
+
+    from langchain_core.messages import HumanMessage, AIMessage
+    messages = []
+    for msg in chat_history.messages:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "bot", "content": msg.content})
+    return jsonify({"messages": messages})
+
+
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     """重置对话历史。"""
