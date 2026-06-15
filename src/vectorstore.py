@@ -10,16 +10,18 @@
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 logger = logging.getLogger(__name__)
 
 
-def get_embedding_model(config: dict):
+def get_embedding_model(config: dict[str, Any]) -> Embeddings:
     """
     根据配置创建 Embedding 模型。
 
@@ -43,7 +45,13 @@ def get_embedding_model(config: dict):
     # 判断是本地模式还是 API 模式：本地模式下 api_base 可设置为 "local"
     if emb_config.get("api_base", "").strip() == "local":
         # 预留本地 sentence-transformers 切换
-        from langchain_community.embeddings import HuggingFaceEmbeddings
+        try:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+        except ImportError:
+            raise ImportError(
+                "本地 Embedding 模式需要安装 langchain-community 和 sentence-transformers，"
+                "请运行: pip install langchain-community sentence-transformers"
+            )
         model_name = emb_config.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
         logger.info(f"使用本地 Embedding 模型: {model_name}")
         return HuggingFaceEmbeddings(model_name=model_name)
@@ -56,7 +64,7 @@ def get_embedding_model(config: dict):
         )
 
 
-def get_vectorstore(config: dict, embedder=None) -> Chroma:
+def get_vectorstore(config: dict[str, Any], embedder: Optional[Embeddings] = None) -> Chroma:
     """
     初始化或加载 Chroma 向量库（持久化模式）。
 
@@ -91,7 +99,7 @@ def get_vectorstore(config: dict, embedder=None) -> Chroma:
     return vectorstore
 
 
-def get_existing_chunk_ids(vectorstore: Chroma) -> set:
+def get_existing_chunk_ids(vectorstore: Chroma) -> set[str]:
     """
     获取向量库中已存在的 chunk_id 集合（用于去重）。
 
@@ -99,7 +107,10 @@ def get_existing_chunk_ids(vectorstore: Chroma) -> set:
         vectorstore: Chroma 向量库实例。
 
     Returns:
-        已存在的 chunk_id 集合。若集合为空，返回空集。
+        已存在的 chunk_id 集合。若集合为空或不可获取，返回空集。
+
+    Raises:
+        RuntimeError: Chroma 数据库异常（非空集合错误）时抛出。
     """
     try:
         results = vectorstore.get()
@@ -107,14 +118,20 @@ def get_existing_chunk_ids(vectorstore: Chroma) -> set:
             chunk_ids = {m.get("chunk_id", "") for m in results["metadatas"] if m.get("chunk_id")}
             logger.debug(f"向量库中已存在 {len(chunk_ids)} 个 chunk_id")
             return chunk_ids
+    except (IndexError, KeyError, TypeError) as e:
+        # 空集合或元数据缺失：正常情况，返回空集
+        logger.debug(f"集合为空或元数据缺失: {e}")
+        return set()
     except Exception as e:
-        logger.debug(f"获取已存在 chunk_id 时出错（可能集合为空）: {e}")
+        # 数据库损坏或其他意外异常：抛出便于排查
+        logger.error(f"获取已存在 chunk_id 失败（可能数据库异常）: {e}", exc_info=True)
+        raise RuntimeError(f"无法读取 Chroma 向量库数据: {e}") from e
     return set()
 
 
 def add_documents(
     vectorstore: Chroma,
-    documents: List[Document],
+    documents: list[Document],
     skip_existing: bool = True,
 ) -> int:
     """
@@ -164,7 +181,7 @@ def add_documents(
     return len(documents)
 
 
-def get_retriever(vectorstore: Chroma, top_k: int = 8):
+def get_retriever(vectorstore: Chroma, top_k: int = 8) -> VectorStoreRetriever:
     """
     获取配置了检索参数的 Retriever。
 
