@@ -235,7 +235,7 @@ def api_ask():
             logger.error(f"API 限流: {e}")
             return jsonify({"error": "请求过于频繁，请稍后重试"}), 429
         logger.error(f"问答失败: {e}", exc_info=True)
-        return jsonify({"error": f"服务异常: {error_msg[:200]}"}), 500
+        return jsonify({"error": "服务内部错误，请稍后重试"}), 500
 
     # 更新对话历史
     chat_history.add_user(display_text)
