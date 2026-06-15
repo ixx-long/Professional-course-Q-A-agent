@@ -175,7 +175,7 @@ def main():
         try:
             result = qa_chain.invoke({
                 "question": user_input,
-                "chat_history": chat_history.get_messages(),
+                "chat_history": chat_history.get_history(),
             })
         except Exception as e:
             print(f"{RED}[错误] 问答失败: {e}{RESET}")

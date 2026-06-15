@@ -16,6 +16,8 @@ from langchain_core.documents import Document
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
 )
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -147,18 +149,17 @@ def create_qa_chain(
     """
     llm = get_llm(config)
 
-    # 构建问答 Prompt（组合 System Prompt + 上下文占位符 + chat_history）
+    # 构建问答 Prompt（chat_history 使用字符串模板，因为 ConversationalRetrievalChain 内部将其转为 str）
     qa_prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="chat_history"),
+        ("system", "对话历史：\n{chat_history}"),
         ("human", "{question}"),
     ])
 
     # Condense question prompt（用于将历史对话压缩为独立问题）
     condense_prompt = ChatPromptTemplate.from_messages([
         ("system", "你是一个善于结合上下文理解问题的助手。"),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "请根据对话历史，将以下问题重新表述为一个独立、完整的问句：\n{question}"),
+        ("human", "对话历史：\n{chat_history}\n\n请将以下问题重新表述为一个独立、完整的问句：\n{question}"),
     ])
 
     # 创建 ConversationalRetrievalChain
@@ -177,30 +178,34 @@ def create_qa_chain(
 
 
 class ChatHistory:
-    """对话历史管理器。"""
+    """对话历史管理器。
+
+    注意：ConversationalRetrievalChain 内部会将 chat_history 转为字符串，
+    因此 get_history 返回格式化的字符串而非 Messages 列表。
+    """
 
     def __init__(self, max_turns: int = 4):
-        """
-        Args:
-            max_turns: 保留的最大对话轮数（每轮 = 1 用户消息 + 1 AI 回复）。
-        """
         self.messages: list = []
         self.max_turns = max_turns
 
     def add_user(self, content: str) -> None:
         """记录用户消息。"""
-        self.messages.append(HumanMessage(content=content))
+        self.messages.append(("用户", content))
 
     def add_ai(self, content: str) -> None:
         """记录 AI 回复。"""
-        self.messages.append(AIMessage(content=content))
+        self.messages.append(("助手", content))
 
-    def get_messages(self) -> list:
-        """获取最近 max_turns 轮的消息列表。"""
-        max_messages = self.max_turns * 2  # 每轮 2 条消息
-        if len(self.messages) > max_messages:
-            return self.messages[-max_messages:]
-        return self.messages.copy()
+    def get_history(self) -> str:
+        """获取最近 max_turns 轮的格式化历史字符串。"""
+        max_messages = self.max_turns * 2
+        recent = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
+        if not recent:
+            return "（暂无历史对话）"
+        lines = []
+        for role, content in recent:
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
 
     def clear(self) -> None:
         """清空历史。"""
