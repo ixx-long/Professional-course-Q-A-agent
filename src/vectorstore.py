@@ -39,11 +39,14 @@ class BailianEmbeddings(Embeddings):
         self.model = model
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """批量生成文档嵌入。逐条调用 API（百炼不支持批量输入）。"""
+        """批量生成文档嵌入。每批最多 25 条（百炼兼容接口限制）。"""
         results: list[list[float]] = []
-        for text in texts:
-            resp = self.client.embeddings.create(model=self.model, input=text)
-            results.append(resp.data[0].embedding)
+        batch_size = 25
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            resp = self.client.embeddings.create(model=self.model, input=batch)
+            results.extend([d.embedding for d in resp.data])
+            logger.debug(f"Embedding 进度: {min(i + batch_size, len(texts))}/{len(texts)}")
         return results
 
     def embed_query(self, text: str) -> list[float]:

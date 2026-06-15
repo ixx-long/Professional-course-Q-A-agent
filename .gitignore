@@ -10,6 +10,9 @@ models/
 # 日志
 logs/
 
+# Session 持久化（含用户对话）
+data/sessions.json
+
 # Python
 __pycache__/
 *.pyc

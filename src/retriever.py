@@ -9,6 +9,10 @@
 CrossEncoder 模型首次运行时自动下载至 cache_dir。
 """
 
+# 模块加载时设置 HF 镜像（必须在导入 sentence_transformers 之前）
+import os as _os
+_os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+
 import logging
 from pathlib import Path
 from typing import List, Tuple, Any
@@ -38,10 +42,6 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
     用法:
         ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-4-v2", "./models")
     """
-    # 国内网络环境兼容：使用 HF 镜像（仅影响 HuggingFace Hub）
-    import os as _os
-    _os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
-
     try:
         from sentence_transformers import CrossEncoder
     except ImportError:

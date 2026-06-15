@@ -13,6 +13,7 @@ import sys
 import argparse
 import logging
 import json
+import atexit
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -30,9 +31,57 @@ qa_chain = None
 sessions: dict = {}  # session_id → ChatHistory（多用户隔离）
 config = None
 logger = None
-retriever = None   # 供 _ask_with_image 和课程筛选使用
-llm = None         # 供 _ask_with_image 使用
-vectorstore = None # 供课程筛选检索使用
+retriever = None      # 供 _ask_with_image 和课程筛选使用
+llm = None            # 供 _ask_with_image 使用
+vectorstore = None    # 供课程筛选检索使用
+SESSIONS_FILE = Path(__file__).parent / "data" / "sessions.json"
+
+
+def _save_sessions():
+    """持久化所有 session 对话历史到 JSON 文件。"""
+    global sessions
+    try:
+        data = {}
+        for sid, ch in sessions.items():
+            msgs = []
+            for m in ch.messages[-100:]:  # 每 session 最多保存 100 条消息
+                msgs.append({
+                    "role": "user" if m.__class__.__name__ == "HumanMessage" else "bot",
+                    "content": m.content,
+                })
+            if msgs:
+                data[sid] = msgs
+        SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SESSIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        if logger:
+            logger.warning(f"保存 sessions 失败: {e}")
+
+
+def _load_sessions():
+    """从 JSON 文件恢复对话历史。"""
+    global sessions
+    if not SESSIONS_FILE.exists():
+        return
+    try:
+        data = json.loads(SESSIONS_FILE.read_text(encoding="utf-8"))
+        for sid, msgs in data.items():
+            ch = ChatHistory(max_turns=config["memory"].get("max_turns", 4))
+            for m in msgs:
+                if m["role"] == "user":
+                    ch.add_user(m["content"])
+                else:
+                    ch.add_ai(m["content"])
+            sessions[sid] = ch
+        if logger:
+            logger.info(f"从文件恢复了 {len(sessions)} 个 session")
+    except Exception as e:
+        if logger:
+            logger.warning(f"加载 sessions 失败: {e}")
+
+
+# 注册退出时自动保存
+atexit.register(_save_sessions)
 
 # ---- 内联 HTML 模板（从 templates/index.html 加载或使用内联模板）----
 INDEX_HTML = None  # 延迟加载
@@ -83,6 +132,9 @@ def init_system(config_path: str):
 
     # 对话链（每个 session 独立 ChatHistory）
     qa_chain = create_qa_chain(compression_retriever, config)
+
+    # 恢复持久化的 session 数据
+    _load_sessions()
 
     logger.info("系统初始化完成")
 
@@ -172,6 +224,7 @@ def api_ask():
     # 更新对话历史
     chat_history.add_user(display_text)
     chat_history.add_ai(answer)
+    _save_sessions()
 
     return jsonify({
         "answer": answer,
@@ -285,6 +338,7 @@ def api_reset():
     data = request.get_json() or {}
     session_id = data.get("session_id") or "default"
     _get_session(session_id).clear()
+    _save_sessions()
     logger.info(f"[{session_id[:8]}] 对话历史已重置")
     return jsonify({"status": "ok", "message": "对话历史已清空"})
 
