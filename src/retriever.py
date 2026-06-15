@@ -38,6 +38,10 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
     用法:
         ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-6-v2", "./models")
     """
+    # 国内网络环境下禁用 SSL 验证（避免 CERTIFICATE_VERIFY_FAILED）
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+
     try:
         from sentence_transformers import CrossEncoder
     except ImportError:
