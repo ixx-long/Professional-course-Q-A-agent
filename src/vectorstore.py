@@ -10,15 +10,46 @@
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any
+
+from openai import OpenAI
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# 阿里云百炼 Embedding 封装（避免 LangChain OpenAIEmbeddings 兼容性问题）
+# ============================================================
+
+class BailianEmbeddings(Embeddings):
+    """阿里云百炼 Embedding 封装，基于 OpenAI 兼容接口。
+
+    百炼的 /compatible-mode/v1 端点支持 OpenAI 风格的 embedding 请求，
+    但 LangChain 的 OpenAIEmbeddings 在批量调用时会附加额外参数导致 400 错误。
+    此类使用原生 openai 库直接调用，避免兼容性问题。
+    """
+
+    def __init__(self, api_key: str, base_url: str, model: str = "text-embedding-v3"):
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model = model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量生成文档嵌入。逐条调用 API（百炼不支持批量输入）。"""
+        results: list[list[float]] = []
+        for text in texts:
+            resp = self.client.embeddings.create(model=self.model, input=text)
+            results.append(resp.data[0].embedding)
+        return results
+
+    def embed_query(self, text: str) -> list[float]:
+        """生成查询嵌入。"""
+        resp = self.client.embeddings.create(model=self.model, input=text)
+        return resp.data[0].embedding
 
 
 def get_embedding_model(config: dict[str, Any]) -> Embeddings:
@@ -26,7 +57,7 @@ def get_embedding_model(config: dict[str, Any]) -> Embeddings:
     根据配置创建 Embedding 模型。
 
     支持两种模式:
-      1. API 模式（阿里云百炼）: 通过 OpenAIEmbeddings + 自定义 api_base 调用
+      1. API 模式（阿里云百炼）: 通过 BailianEmbeddings（OpenAI 兼容）调用
       2. 本地模式（预留）: 通过 sentence-transformers 本地加载
 
     Args:
@@ -36,7 +67,7 @@ def get_embedding_model(config: dict[str, Any]) -> Embeddings:
             - model_name
 
     Returns:
-        OpenAIEmbeddings 或其他 LangChain 兼容的 Embedding 实例。
+        LangChain 兼容的 Embedding 实例。
 
     用法:
         embedder = get_embedding_model(config["embedding"])
@@ -57,10 +88,10 @@ def get_embedding_model(config: dict[str, Any]) -> Embeddings:
         return HuggingFaceEmbeddings(model_name=model_name)
     else:
         logger.info(f"使用 API Embedding: {emb_config.get('model_name')} @ {emb_config.get('api_base')}")
-        return OpenAIEmbeddings(
+        return BailianEmbeddings(
+            api_key=emb_config["api_key"],
+            base_url=emb_config["api_base"],
             model=emb_config.get("model_name", "text-embedding-v3"),
-            api_key=emb_config.get("api_key"),
-            base_url=emb_config.get("api_base"),
         )
 
 
