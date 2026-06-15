@@ -5,12 +5,48 @@
 """
 
 import os
+import re
 import logging
 import sys
 from pathlib import Path
 from typing import Dict, Any
 
 import yaml
+
+
+# 环境变量 → 配置字段映射
+# 优先级：环境变量 > config.yaml 值 > 默认值
+_ENV_MAP = {
+    "DEEPSEEK_API_KEY":    ("llm", "api_key"),
+    "DEEPSEEK_API_BASE":   ("llm", "api_base"),
+    "DEEPSEEK_MODEL":      ("llm", "model_name"),
+    "BAILIAN_API_KEY":     ("embedding", "api_key"),
+    "BAILIAN_API_BASE":    ("embedding", "api_base"),
+    "BAILIAN_MODEL":       ("embedding", "model_name"),
+}
+
+
+def _resolve_from_env(config: Dict[str, Any]) -> Dict[str, Any]:
+    """用环境变量覆盖配置中的敏感字段。"""
+    for env_var, (section, key) in _ENV_MAP.items():
+        val = os.environ.get(env_var)
+        if val:
+            config.setdefault(section, {})[key] = val
+
+    # 也支持 ${VAR} 占位符语法
+    def _resolve(val):
+        if isinstance(val, str):
+            m = re.match(r'^\$\{(\w+)\}$', val)
+            if m and m.group(1) in os.environ:
+                return os.environ[m.group(1)]
+        return val
+
+    for section in config:
+        if isinstance(config[section], dict):
+            for key in config[section]:
+                config[section][key] = _resolve(config[section][key])
+
+    return config
 
 
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
@@ -47,6 +83,9 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     if config is None:
         raise ValueError(f"配置文件 {path} 内容为空")
 
+    # 用环境变量覆盖配置中的敏感字段
+    config = _resolve_from_env(config)
+
     # 校验必须的顶层键
     required_sections = ["llm", "embedding", "chroma", "retrieval", "reranker", "memory", "logging"]
     missing = [s for s in required_sections if s not in config]
@@ -55,7 +94,13 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
 
     # 深度校验：关键字段不能为空
     if not config["llm"].get("api_key"):
-        raise ValueError("llm.api_key 不能为空")
+        raise ValueError(
+            "llm.api_key 不能为空。请在 config.yaml 中填写或设置环境变量 DEEPSEEK_API_KEY"
+        )
+    if not config["embedding"].get("api_key"):
+        raise ValueError(
+            "embedding.api_key 不能为空。请在 config.yaml 中填写或设置环境变量 BAILIAN_API_KEY"
+        )
     if not config["llm"].get("api_base"):
         raise ValueError("llm.api_base 不能为空")
     if not config["embedding"].get("api_key"):

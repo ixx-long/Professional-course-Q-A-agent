@@ -1,15 +1,19 @@
 # ============================================================
-# 使用说明：复制本文件为 config.yaml 并填入真实 API Key
-#   cp config.example.yaml config.yaml
+# 使用说明
+#   方式1（推荐）：设置环境变量，config.yaml 中用 ${VAR} 占位
+#     export DEEPSEEK_API_KEY=sk-xxx
+#     export BAILIAN_API_KEY=sk-xxx
+#   方式2：复制为 config.yaml 并直接填入 Key（注意不要提交到 Git）
+#     cp config.example.yaml config.yaml
 # ============================================================
 
 # ============================================================
 # 生成模型配置（DeepSeek）
 # ============================================================
 llm:
-  api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  api_base: "https://api.deepseek.com"
-  model_name: "deepseek-chat"
+  api_key: "${DEEPSEEK_API_KEY}"           # 或直接填 Key
+  api_base: "https://api.deepseek.com"      # 或 ${DEEPSEEK_API_BASE}
+  model_name: "deepseek-chat"                # 或 ${DEEPSEEK_MODEL}
   temperature: 0.1
   max_tokens: 2048
 
@@ -17,9 +21,9 @@ llm:
 # Embedding 模型配置（阿里云百炼）
 # ============================================================
 embedding:
-  api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  model_name: "text-embedding-v3"
+  api_key: "${BAILIAN_API_KEY}"              # 或直接填 Key
+  api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 或 ${BAILIAN_API_BASE}
+  model_name: "text-embedding-v3"            # 或 ${BAILIAN_MODEL}
 
 # ============================================================
 # 向量库配置
