@@ -77,7 +77,11 @@ def load_single_document(file_path: Path) -> List[Document]:
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     loader_cls = _get_loader(file_path)
-    loader = loader_cls(str(file_path))
+    # PDF 用默认参数，文本类 Loader 需要显式指定 UTF-8 编码（Windows 兼容）
+    if file_path.suffix.lower() == ".pdf":
+        loader = loader_cls(str(file_path))
+    else:
+        loader = loader_cls(str(file_path), encoding="utf-8")
     docs = loader.load()
 
     is_pdf = file_path.suffix.lower() == ".pdf"
