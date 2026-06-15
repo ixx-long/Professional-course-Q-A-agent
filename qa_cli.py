@@ -109,17 +109,22 @@ def main():
         vectorstore = get_vectorstore(config, embedder)
         retriever = get_retriever(vectorstore, top_k=config["retrieval"]["top_k"])
 
-        # CrossEncoder
-        reranker_config = config["reranker"]
-        cross_encoder = load_cross_encoder(
-            model_name=reranker_config["model_name"],
-            cache_dir=reranker_config.get("cache_dir", "./models"),
-        )
-
-        # 压缩型 retriever（嵌入链内自动重排序）
-        compression_retriever = create_compression_retriever(
-            retriever, cross_encoder, config["retrieval"]
-        )
+        # CrossEncoder（可选：加载失败时降级为无重排序模式）
+        cross_encoder = None
+        try:
+            reranker_config = config["reranker"]
+            cross_encoder = load_cross_encoder(
+                model_name=reranker_config["model_name"],
+                cache_dir=reranker_config.get("cache_dir", "./models"),
+            )
+            compression_retriever = create_compression_retriever(
+                retriever, cross_encoder, config["retrieval"]
+            )
+            print(f"{GREEN}[OK] 重排序模型加载成功{RESET}")
+        except Exception as ce_err:
+            print(f"{YELLOW}[警告] 重排序模型加载失败，使用基础检索: {ce_err}{RESET}")
+            logger.warning(f"CrossEncoder 加载失败，降级为无重排序: {ce_err}")
+            compression_retriever = retriever  # 降级：不使用重排序
 
         # 记忆 + 对话链
         memory = create_memory(max_turns=config["memory"].get("max_turns", 4))
