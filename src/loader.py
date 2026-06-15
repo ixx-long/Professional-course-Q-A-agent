@@ -12,10 +12,13 @@
   - 每个 chunk 附带 metadata: source(文件名), page(页码), chunk_id(唯一编号)
 """
 
+import logging
 import os
 import hashlib
 from pathlib import Path
-from typing import List
+from typing import List, Dict
+
+logger = logging.getLogger(__name__)
 
 from langchain_community.document_loaders import (
     PyPDFLoader,
@@ -27,7 +30,7 @@ from langchain_core.documents import Document
 
 
 # 支持的文件扩展名 → Loader 映射
-LOADER_MAP = {
+LOADER_MAP: Dict[str, type] = {
     ".pdf": PyPDFLoader,
     ".docx": Docx2txtLoader,
     ".md": TextLoader,
@@ -35,7 +38,7 @@ LOADER_MAP = {
 }
 
 
-def _get_loader(file_path: Path):
+def _get_loader(file_path: Path) -> type:
     """
     根据文件扩展名返回对应的 LangChain Loader 类。
 
@@ -74,23 +77,16 @@ def load_single_document(file_path: Path) -> List[Document]:
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     loader_cls = _get_loader(file_path)
+    loader = loader_cls(str(file_path))
+    docs = loader.load()
 
-    # PyPDFLoader 需要特殊处理（逐页加载）
-    if file_path.suffix.lower() == ".pdf":
-        loader = loader_cls(str(file_path))
-        docs = loader.load()
-        # 为每页补充 source 元数据
-        for i, doc in enumerate(docs):
-            doc.metadata["source"] = file_path.name
-            doc.metadata["page"] = i + 1
-        return docs
-    else:
-        loader = loader_cls(str(file_path))
-        docs = loader.load()
-        for doc in docs:
-            doc.metadata["source"] = file_path.name
-            doc.metadata["page"] = 1  # 非 PDF 文件视为单页
-        return docs
+    is_pdf = file_path.suffix.lower() == ".pdf"
+
+    for i, doc in enumerate(docs):
+        doc.metadata["source"] = file_path.name
+        doc.metadata["page"] = i + 1 if is_pdf else 1
+
+    return docs
 
 
 def split_documents(docs: List[Document], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[Document]:
@@ -164,8 +160,7 @@ def load_documents(input_dir: str, chunk_size: int = 1000, chunk_overlap: int = 
                     all_docs.extend(docs)
                 except Exception as e:
                     # 单个文件加载失败不中断整体流程
-                    import logging
-                    logging.getLogger("course_qa").warning(f"跳过文件 {file_path}: {e}")
+                    logger.warning(f"跳过文件 {file_path}: {e}")
 
     if not all_docs:
         raise RuntimeError(f"在 {input_dir} 中未找到任何支持的文档文件")
