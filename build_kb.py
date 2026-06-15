@@ -15,6 +15,13 @@ import argparse
 import sys
 from pathlib import Path
 
+# Windows GBK 终端兼容：强制 UTF-8 输出
+if sys.platform == 'win32':
+    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
+    try: sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
+
 # 将项目根目录加入 sys.path，确保 src 模块可导入
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -59,7 +66,12 @@ def main():
     parser.add_argument(
         "--force",
         action="store_true",
-        help="强制全量重建，不进行去重检查",
+        help="强制全量重建（清空旧集合后重新入库）",
+    )
+    parser.add_argument(
+        "--course",
+        default=None,
+        help="为所有文档标注课程标签（如 数据结构、操作系统），用于前端课程筛选",
     )
 
     args = parser.parse_args()
@@ -97,6 +109,13 @@ def main():
     except Exception as e:
         logger.error(f"加载文档失败: {e}")
         sys.exit(1)
+
+    # 注入课程元数据（供检索时按课程筛选）
+    if args.course:
+        for doc in documents:
+            doc.metadata["course"] = args.course
+        logger.info(f"课程标签: {args.course}")
+        print(f"  [OK] 课程标签: {args.course}")
 
     logger.info(f"加载完成: {len(documents)} 个文本块")
     print(f"  [OK] 共加载 {len(documents)} 个文本块")

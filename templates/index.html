@@ -492,7 +492,7 @@
     if (entries.length === 0) {
       html += '<div style="padding:8px 12px;font-size:11px;color:rgba(255,255,255,0.3)">暂无历史对话</div>';
     } else {
-      for (const [sid, info]) of entries) {
+      for (const [sid, info] of entries) {
         const title = (info.title || '新对话').substring(0, 28);
         const isActive = sid === SESSION_ID;
         html += `<div class="history-item${isActive ? ' active' : ''}" onclick="switchSession('${sid}')" title="${escapeAttr(info.title)}">${escapeHtml(title)}</div>`;
@@ -708,6 +708,12 @@
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
       `<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+    // 有序列表
+    html = html.replace(/(?:^|\n)(\d+)[\.\、]\s+(.+)/gm, '<li>$2</li>');
+    html = html.replace(/((?:<li>.*?<\/li>(?:\s*<br>)?)+)/g, (m) => {
+      if (m.includes('value=')) return m; // 已处理
+      return '<ol>' + m.replace(/<br>/g, '') + '</ol>';
+    });
     html = html.replace(/\n/g, '<br>');
     return html;
   }

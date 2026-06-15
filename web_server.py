@@ -39,6 +39,7 @@ retriever = None          # 供 _ask_with_image 和课程筛选使用
 llm = None                # 供 _ask_with_image 使用
 vectorstore = None        # 供课程筛选检索使用
 SESSIONS_FILE = Path(__file__).parent / "data" / "sessions.json"
+_filtered_chains: dict = {}  # 课程筛选 Chain 缓存
 
 
 def _save_sessions():
@@ -85,7 +86,21 @@ def _load_sessions():
             logger.warning(f"加载 sessions 失败: {e}")
 
 
-# 注册退出时自动保存
+# 写盘节流：30 秒内最多写一次
+_last_save = 0
+_SESSION_SAVE_INTERVAL = 30
+
+def _save_sessions_throttled():
+    """节流版本：距离上次写入不足 30 秒则跳过。退出时强制写入。"""
+    global _last_save
+    import time
+    now = time.time()
+    if now - _last_save < _SESSION_SAVE_INTERVAL:
+        return
+    _last_save = now
+    _save_sessions()
+
+# 注册退出时强制写入
 atexit.register(_save_sessions)
 
 # ---- 内联 HTML 模板（从 templates/index.html 加载或使用内联模板）----
@@ -130,9 +145,6 @@ def init_system(config_path: str):
     # LLM 实例（供图片问答使用）
     from src.chain import get_llm
     llm = get_llm(config)
-
-    # 向量库引用（供课程筛选检索）
-    vectorstore = vectorstore
 
     # 对话链（每个 session 独立 ChatHistory）
     qa_chain = create_qa_chain(compression_retriever, config)
@@ -211,11 +223,15 @@ def api_ask():
         if image_b64:
             answer, source_docs = _ask_with_image(question, image_b64, session_id)
         else:
-            # 课程筛选：使用带 metadata filter 的 retriever
-            chain = qa_chain
+            # 课程筛选：使用缓存 Chain（避免每次重建）
             if course and course != "all":
-                filter_retriever = _get_filtered_retriever(course)
-                chain = create_qa_chain(filter_retriever, config)
+                if course not in _filtered_chains:
+                    _filtered_chains[course] = create_qa_chain(
+                        _get_filtered_retriever(course), config
+                    )
+                chain = _filtered_chains[course]
+            else:
+                chain = qa_chain
 
             result = chain.invoke({
                 "question": question,
@@ -240,7 +256,7 @@ def api_ask():
     # 更新对话历史
     chat_history.add_user(display_text)
     chat_history.add_ai(answer)
-    _save_sessions()
+    _save_sessions_throttled()
 
     return jsonify({
         "answer": answer,
@@ -376,7 +392,7 @@ def api_reset():
     data = request.get_json() or {}
     session_id = data.get("session_id") or "default"
     _get_session(session_id).clear()
-    _save_sessions()
+    _save_sessions_throttled()
     logger.info(f"[{session_id[:8]}] 对话历史已重置")
     return jsonify({"status": "ok", "message": "对话历史已清空"})
 

@@ -9,6 +9,7 @@
 """
 
 import logging
+import time
 from pathlib import Path
 from typing import List, Optional, Any
 
@@ -35,24 +36,38 @@ class BailianEmbeddings(Embeddings):
     """
 
     def __init__(self, api_key: str, base_url: str, model: str = "text-embedding-v3"):
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, max_retries=3, timeout=30.0)
         self.model = model
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """批量生成文档嵌入。每批最多 25 条（百炼兼容接口限制）。"""
+        """批量生成文档嵌入。每批最多 25 条，自动重试 3 次。"""
         results: list[list[float]] = []
         batch_size = 25
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            resp = self.client.embeddings.create(model=self.model, input=batch)
-            results.extend([d.embedding for d in resp.data])
+            for attempt in range(3):
+                try:
+                    resp = self.client.embeddings.create(model=self.model, input=batch)
+                    results.extend([d.embedding for d in resp.data])
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        raise
+                    logger.warning(f"Embedding 请求失败 (重试 {attempt+1}/3): {e}")
+                    time.sleep(1.5 ** attempt)
             logger.debug(f"Embedding 进度: {min(i + batch_size, len(texts))}/{len(texts)}")
         return results
 
     def embed_query(self, text: str) -> list[float]:
-        """生成查询嵌入。"""
-        resp = self.client.embeddings.create(model=self.model, input=text)
-        return resp.data[0].embedding
+        """生成查询嵌入（自动重试）。"""
+        for attempt in range(3):
+            try:
+                resp = self.client.embeddings.create(model=self.model, input=text)
+                return resp.data[0].embedding
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                time.sleep(1.5 ** attempt)
 
 
 def get_embedding_model(config: dict[str, Any]) -> Embeddings:

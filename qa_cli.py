@@ -20,6 +20,13 @@ import sys
 import logging
 from pathlib import Path
 
+# Windows GBK 终端兼容：强制 UTF-8 输出
+if sys.platform == 'win32':
+    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
+    try: sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.utils import load_config, setup_logger
