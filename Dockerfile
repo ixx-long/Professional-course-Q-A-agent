@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制并安装依赖
+# 复制并安装依赖（跳过 torch/sentence-transformers，Docker 中太重）
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN grep -v "sentence-transformers" requirements.txt > requirements-docker.txt && \
+    pip install --no-cache-dir --user -r requirements-docker.txt && \
+    rm requirements-docker.txt
 
 # 运行阶段
 FROM python:3.10-slim
