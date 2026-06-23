@@ -9,13 +9,14 @@
 CrossEncoder 模型首次运行时自动下载至 cache_dir。
 """
 
-# 模块加载时设置 HF 镜像（必须在导入 sentence_transformers 之前）
+# 模块加载时设置 HF 环境（必须在导入 sentence_transformers 之前）
 import os as _os
 _os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+_os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '10')
 
 import logging
 from pathlib import Path
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Optional
 
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStoreRetriever
@@ -25,22 +26,21 @@ from langchain_classic.retrievers.document_compressors import CrossEncoderRerank
 logger = logging.getLogger(__name__)
 
 
-def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEncoder":
-    """
-    加载 CrossEncoder 模型（带缓存处理）。
+def load_cross_encoder(model_name: str, cache_dir: str = "./models", download_timeout: int = 15, device: str = None) -> "CrossEncoder":
+    """加载 CrossEncoder 模型（带缓存处理和下载超时）。
 
     Args:
-        model_name: HuggingFace 模型名称，如 'cross-encoder/ms-marco-MiniLM-L-4-v2'。
+        model_name: HuggingFace 模型名称。
         cache_dir: 模型缓存目录。
+        download_timeout: 模型下载超时秒数（默认 15s，内网场景避免卡死）。
+        device: 设备选择（'cuda'/'cpu'/None，None 表示自动检测）。
 
     Returns:
         CrossEncoder 实例。
 
     Raises:
         ImportError: sentence-transformers 未安装时抛出。
-
-    用法:
-        ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L-4-v2", "./models")
+        TimeoutError: 模型下载超时。
     """
     try:
         from sentence_transformers import CrossEncoder
@@ -49,14 +49,48 @@ def load_cross_encoder(model_name: str, cache_dir: str = "./models") -> "CrossEn
             "sentence-transformers 未安装，请运行: pip install sentence-transformers"
         )
 
+    # 自动检测设备
+    if device is None:
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            device = "cpu"
+    
+    logger.info(f"CrossEncoder 使用设备: {device}")
+
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"加载 CrossEncoder 模型: {model_name}")
-    model = CrossEncoder(model_name, cache_dir=str(cache_path))
-    logger.info("CrossEncoder 模型加载完成")
+    # 检查是否已缓存，若已缓存则离线加载（跳过网络版本检查）
+    model_dir = cache_path / ("models--" + model_name.replace("/", "--"))
+    if model_dir.exists() and any(model_dir.rglob("*.safetensors")):
+        logger.info(f"CrossEncoder 模型已缓存，离线加载: {model_dir}")
+        _os.environ['HF_HUB_OFFLINE'] = '1'
+        return CrossEncoder(model_name, cache_dir=str(cache_path), device=device)
 
-    return model
+    logger.info(f"下载 CrossEncoder 模型: {model_name}（超时 {download_timeout}s）")
+    # 使用线程 + 超时避免网络问题卡死启动
+    import threading
+    result = {"model": None, "error": None}
+
+    def _download():
+        try:
+            result["model"] = CrossEncoder(model_name, cache_dir=str(cache_path), device=device)
+        except Exception as e:
+            result["error"] = e
+
+    t = threading.Thread(target=_download, daemon=True)
+    t.start()
+    t.join(timeout=download_timeout)
+
+    if result["model"] is not None:
+        logger.info("CrossEncoder 模型加载完成")
+        return result["model"]
+    if result["error"] is not None:
+        raise result["error"]
+    from src.errors import RequestTimeoutError
+    raise RequestTimeoutError(f"CrossEncoder 模型下载超时（{download_timeout}s）")
 
 
 def _rerank_with_cross_encoder(
@@ -93,7 +127,7 @@ def _rerank_with_cross_encoder(
     # 取 top_n，复制文档避免污染原始对象 metadata
     top_docs: list[Document] = []
     for score, doc in scored_docs[:top_n]:
-        doc_copy = doc.copy()
+        doc_copy = doc.model_copy()
         doc_copy.metadata["rerank_score"] = float(score)
         top_docs.append(doc_copy)
 

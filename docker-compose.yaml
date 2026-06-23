@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # Redis 服务（分布式缓存、会话存储、限流计数）
+  redis:
+    image: redis:7-alpine
+    container_name: course-qa-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - course-qa-network
+
+  # 课程答疑应用
+  course-qa:
+    build: .
+    container_name: course-qa-web
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # 挂载配置文件（便于修改）
+      - ./config.yaml:/app/config.yaml:ro
+      # 挂载数据目录（持久化向量库和会话数据）
+      - ./data:/app/data
+      # 挂载日志目录
+      - ./logs:/app/logs
+      # 挂载模型缓存目录
+      - ./models:/app/models
+      # 挂载知识库文档目录
+      - ./data/documents:/app/data/documents:ro
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - BAILIAN_API_KEY=${BAILIAN_API_KEY}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-key-change-in-production}
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+      - HF_ENDPOINT=https://hf-mirror.com
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - course-qa-network
+
+# 数据卷
+volumes:
+  redis-data:
+    driver: local
+
+# 网络
+networks:
+  course-qa-network:
+    driver: bridge

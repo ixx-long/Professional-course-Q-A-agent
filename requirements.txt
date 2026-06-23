@@ -1,32 +1,46 @@
 # Python >= 3.10
 # LangChain 核心
-langchain==0.3.13
-langchain-classic==0.3.13
-langchain-community==0.3.13
-langchain-core==0.3.28
-langchain-text-splitters==0.3.5
-langchain-openai==0.2.14
-langchain-chroma==0.2.1
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-openai>=0.2.0
+langchain-chroma>=0.2.0
+langchain-community>=0.3.0  # 文档加载器仍需要此包
+langchain-huggingface>=0.1.0  # 替代 langchain-community 的 embeddings
 
 # OpenAI SDK（BailianEmbeddings 直接依赖）
 openai>=1.0
 
 # Chroma 向量数据库
-chromadb==0.5.23
+chromadb>=0.5.0
 
 # 文档解析
-pypdf==5.1.0
-docx2txt==0.8
+pypdf>=5.0.0
+docx2txt>=0.8
 
 # 重排序
-sentence-transformers==3.3.1
+sentence-transformers>=3.0.0
 
 # 配置与工具
-pyyaml==6.0.2
-tqdm==4.67.1
+pyyaml>=6.0.0
+tqdm>=4.60.0
+pydantic>=2.5.0,<3.0.0
+mypy>=1.8.0
 
 # CLI 增强（可选）
-colorama==0.4.6
+colorama>=0.4.6
 
 # Web 服务
-flask==3.1.0
+flask>=3.0.0
+flask-wtf>=1.2.0
+flask-cors>=4.0.0
+flask-limiter>=3.5.0
+gunicorn>=21.0.0
+prometheus-client>=0.19.0
+
+# 企业级增强
+pyjwt>=2.8.0
+cryptography>=41.0.0
+redis>=5.0.0
+watchdog>=3.0.0
+requests>=2.31.0

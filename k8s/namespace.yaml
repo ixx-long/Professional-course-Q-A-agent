@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: course-qa
+  labels:
+    name: course-qa
+    app.kubernetes.io/name: course-qa
+    app.kubernetes.io/part-of: course-qa-system

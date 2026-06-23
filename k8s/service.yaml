@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: course-qa
+  namespace: course-qa
+  labels:
+    app: course-qa
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: course-qa
+
+---
+# 如果需要外部访问，可以使用 LoadBalancer 类型
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: course-qa-external
+#   namespace: course-qa
+# spec:
+#   type: LoadBalancer
+#   ports:
+#   - port: 80
+#     targetPort: 5000
+#     protocol: TCP
+#   selector:
+#     app: course-qa

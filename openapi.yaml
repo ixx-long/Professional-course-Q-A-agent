@@ -1,0 +1,595 @@
+openapi: 3.0.3
+info:
+  title: 专业课程答疑系统 API
+  description: |
+    基于 RAG 的专业课程答疑系统，提供智能问答、多模态问答、流式响应等功能。
+    
+    ## 主要功能
+    - **文本问答**：基于知识库的智能问答
+    - **多模态问答**：支持图片+文本的问答
+    - **流式响应**：实时返回生成内容
+    - **会话管理**：多轮对话和历史记录
+    - **语义缓存**：相似问题快速响应
+    
+    ## 认证方式
+    - Session Token：通过 X-Session-Token 请求头传递
+    - JWT Token：通过 Authorization: Bearer <token> 传递
+    
+    ## 限流策略
+    - 普通接口：30 次/分钟
+    - 流式接口：20 次/分钟
+    - 全局限制：200 次/天，50 次/小时
+  version: 2.0.0
+  contact:
+    name: 技术支持
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: 本地开发服务器
+  - url: https://api.example.com
+    description: 生产环境服务器
+
+tags:
+  - name: 问答
+    description: 问答相关接口
+  - name: 会话
+    description: 会话管理接口
+  - name: 系统
+    description: 系统管理接口
+  - name: 监控
+    description: 监控和指标接口
+
+paths:
+  /api/ask:
+    post:
+      tags:
+        - 问答
+      summary: 文本问答
+      description: |
+        基于知识库的智能问答接口，支持：
+        - 纯文本问答
+        - 图片+文本多模态问答
+        - 语义缓存加速
+        - 多轮对话上下文
+      operationId: askQuestion
+      parameters:
+        - name: X-Session-Token
+          in: header
+          description: 会话令牌，用于标识和鉴权
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+            examples:
+              text_question:
+                summary: 纯文本问答
+                value:
+                  question: "什么是机器学习？"
+                  course: "AI基础"
+                  session_id: "user123_session1"
+              image_question:
+                summary: 图片问答
+                value:
+                  question: "这张图片中是什么？"
+                  image: "data:image/png;base64,iVBORw0KGgoAAAANS..."
+                  session_id: "user123_session1"
+      responses:
+        '200':
+          description: 问答成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskResponse'
+              examples:
+                success:
+                  summary: 成功响应
+                  value:
+                    answer: "机器学习是人工智能的一个分支..."
+                    sources:
+                      - file: "AI基础教材.pdf"
+                        page: 42
+                        score: 0.95
+                        content: "机器学习是一种通过数据训练模型的方法..."
+                    recall_count: 8
+                    cached: false
+                cached:
+                  summary: 缓存命中
+                  value:
+                    answer: "机器学习是人工智能的一个分支..."
+                    sources: []
+                    recall_count: 0
+                    cached: true
+                    similarity: 0.96
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_question:
+                  summary: 问题为空
+                  value:
+                    error: "问题不能为空"
+                    code: "VALIDATION_ERROR"
+                invalid_image:
+                  summary: 图片格式错误
+                  value:
+                    error: "图片无效: 不支持的图片格式"
+                    code: "IMAGE_ERROR"
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "无权操作此会话"
+                code: "AUTH_ERROR"
+        '429':
+          description: 请求过于频繁
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "请求过于频繁，请稍后重试"
+                code: "RATE_LIMIT"
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "服务内部错误，请稍后重试"
+                code: "LLM_ERROR"
+      security:
+        - SessionToken: []
+        - BearerAuth: []
+
+  /api/ask/stream:
+    post:
+      tags:
+        - 问答
+      summary: 流式问答
+      description: |
+        流式问答接口，使用 Server-Sent Events (SSE) 实时返回生成内容。
+        
+        ## 响应格式
+        - `sources`: 检索到的参考文档
+        - `token`: 生成的文本片段
+        - `done`: 生成完成标记
+        - `full_answer`: 完整答案
+        - `error`: 错误信息
+      operationId: askQuestionStream
+      parameters:
+        - name: X-Session-Token
+          in: header
+          description: 会话令牌
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskStreamRequest'
+            example:
+              question: "解释深度学习的原理"
+              course: "AI基础"
+              session_id: "user123_session1"
+      responses:
+        '200':
+          description: 流式响应成功
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE 格式的事件流，每个事件以 `data: ` 开头，包含 JSON 数据。
+                  
+                  ## 事件类型
+                  1. **sources 事件**：返回参考文档
+                  2. **token 事件**：返回生成的文本片段
+                  3. **done 事件**：生成完成，包含完整答案
+                  4. **error 事件**：错误信息
+              example: |
+                data: {"sources": [{"file": "教材.pdf", "page": 10, "score": 0.92}], "recall_count": 8}
+                
+                data: {"token": "深度"}
+                
+                data: {"token": "学习"}
+                
+                data: {"token": "是"}
+                
+                data: {"done": true, "full_answer": "深度学习是一种...", "cached": false}
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: 请求过于频繁
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - SessionToken: []
+        - BearerAuth: []
+
+  /api/history:
+    get:
+      tags:
+        - 会话
+      summary: 获取对话历史
+      description: 获取指定会话的对话历史记录
+      operationId: getHistory
+      parameters:
+        - name: session_id
+          in: query
+          description: 会话 ID
+          required: false
+          schema:
+            type: string
+            default: "default"
+        - name: X-Session-Token
+          in: header
+          description: 会话令牌
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+              example:
+                messages:
+                  - role: "user"
+                    content: "什么是机器学习？"
+                  - role: "bot"
+                    content: "机器学习是..."
+                    sources: []
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - SessionToken: []
+        - BearerAuth: []
+
+  /api/reset:
+    post:
+      tags:
+        - 会话
+      summary: 重置对话历史
+      description: 清空指定会话的对话历史
+      operationId: resetHistory
+      parameters:
+        - name: X-Session-Token
+          in: header
+          description: 会话令牌
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  description: 会话 ID
+                  default: "default"
+            example:
+              session_id: "user123_session1"
+      responses:
+        '200':
+          description: 重置成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  message:
+                    type: string
+                    example: "对话历史已清空"
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - SessionToken: []
+        - BearerAuth: []
+
+  /health:
+    get:
+      tags:
+        - 系统
+      summary: 健康检查
+      description: |
+        检查系统各组件的健康状态，用于负载均衡器和监控系统。
+        
+        ## 组件状态
+        - `qa_chain`: 问答链是否正常
+        - `llm`: LLM 服务是否正常
+        - `embedder`: Embedding 服务是否正常
+        - `vectorstore`: 向量数据库是否正常
+        - `retriever`: 检索器是否正常
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 系统健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                components:
+                  qa_chain: true
+                  llm: true
+                  embedder: true
+                  vectorstore: true
+                  retriever: true
+                sessions: 5
+                timestamp: 1703123456
+        '503':
+          description: 系统降级
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "degraded"
+                components:
+                  qa_chain: false
+                  llm: true
+                  embedder: true
+                  vectorstore: true
+                  retriever: true
+                sessions: 5
+                timestamp: 1703123456
+
+  /metrics:
+    get:
+      tags:
+        - 监控
+      summary: Prometheus 指标
+      description: |
+        返回 Prometheus 格式的监控指标，包括：
+        - 请求计数和延迟
+        - LLM 调用统计
+        - 检索性能指标
+        - 错误统计
+        - 活跃会话数
+      operationId: getMetrics
+      responses:
+        '200':
+          description: 指标数据
+          content:
+            text/plain; version=0.0.4:
+              schema:
+                type: string
+                description: Prometheus 文本格式指标
+              example: |
+                # HELP qa_requests_total Total number of requests
+                # TYPE qa_requests_total counter
+                qa_requests_total{method="POST",endpoint="/api/ask",status="200"} 150
+                # HELP qa_request_duration_seconds Request latency in seconds
+                # TYPE qa_request_duration_seconds histogram
+                qa_request_duration_seconds_bucket{method="POST",endpoint="/api/ask",le="1.0"} 120
+
+components:
+  schemas:
+    AskRequest:
+      type: object
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          description: 问题文本
+          maxLength: 5000
+          example: "什么是机器学习？"
+        image:
+          type: string
+          description: |
+            图片的 Base64 编码，支持 data URI 格式。
+            最大 10MB，支持 PNG/JPEG/GIF/WebP。
+          example: "data:image/png;base64,iVBORw0KGgoAAAANS..."
+        course:
+          type: string
+          description: |
+            课程名称，用于过滤知识库范围。
+            不指定或 "all" 表示搜索所有课程。
+          example: "AI基础"
+        session_id:
+          type: string
+          description: 会话 ID，用于多轮对话
+          default: "default"
+          example: "user123_session1"
+        stream:
+          type: boolean
+          description: 是否使用流式响应（请使用 /api/ask/stream 接口）
+          default: false
+
+    AskStreamRequest:
+      type: object
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          description: 问题文本
+          maxLength: 5000
+          example: "解释深度学习的原理"
+        course:
+          type: string
+          description: 课程名称
+          example: "AI基础"
+        session_id:
+          type: string
+          description: 会话 ID
+          default: "default"
+          example: "user123_session1"
+
+    AskResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+          description: 生成的答案
+          example: "机器学习是人工智能的一个分支..."
+        sources:
+          type: array
+          description: 参考文档来源
+          items:
+            $ref: '#/components/schemas/Source'
+        recall_count:
+          type: integer
+          description: 召回的文档数量
+          example: 8
+        cached:
+          type: boolean
+          description: 是否来自语义缓存
+          example: false
+        similarity:
+          type: number
+          format: float
+          description: 缓存命中时的相似度（仅 cached=true 时返回）
+          example: 0.96
+
+    Source:
+      type: object
+      properties:
+        file:
+          type: string
+          description: 文件名
+          example: "AI基础教材.pdf"
+        page:
+          type: integer
+          description: 页码
+          example: 42
+        score:
+          type: number
+          format: float
+          description: 相关性得分
+          example: 0.95
+        content:
+          type: string
+          description: 文档内容片段（最多 300 字符）
+          example: "机器学习是一种通过数据训练模型的方法..."
+
+    HistoryResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          description: 对话消息列表
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: ["user", "bot"]
+                description: 消息角色
+              content:
+                type: string
+                description: 消息内容
+              sources:
+                type: array
+                description: 参考文档（仅 bot 消息）
+                items:
+                  $ref: '#/components/schemas/Source'
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ["healthy", "degraded"]
+          description: 系统状态
+        components:
+          type: object
+          description: 各组件健康状态
+          additionalProperties:
+            type: boolean
+        sessions:
+          type: integer
+          description: 活跃会话数
+        timestamp:
+          type: integer
+          description: 时间戳（Unix 秒）
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: 错误信息
+          example: "问题不能为空"
+        code:
+          type: string
+          description: 错误代码
+          enum:
+            - VALIDATION_ERROR
+            - AUTH_ERROR
+            - IMAGE_ERROR
+            - RATE_LIMIT
+            - LLM_ERROR
+            - CONFIG_ERROR
+            - NOT_FOUND
+            - INTERNAL_ERROR
+            - CSRF_BLOCKED
+          example: "VALIDATION_ERROR"
+
+  securitySchemes:
+    SessionToken:
+      type: apiKey
+      in: header
+      name: X-Session-Token
+      description: 会话令牌，用于标识和鉴权会话
+    
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT 访问令牌
+
+security:
+  - SessionToken: []
+  - BearerAuth: []

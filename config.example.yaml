@@ -24,13 +24,16 @@ embedding:
   api_key: "${BAILIAN_API_KEY}"              # 或直接填 Key
   api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 或 ${BAILIAN_API_BASE}
   model_name: "text-embedding-v3"            # 或 ${BAILIAN_MODEL}
+  dimensions: 1024                           # 向量维度（128-4096）
+  batch_size: 25                             # 批量大小（1-100）
+  max_concurrent: 4                          # 最大并发数（1-16）
 
 # ============================================================
 # 向量库配置
 # ============================================================
 chroma:
   persist_dir: "./data/chroma_db"
-  collection_name: "course_materials"
+  collection_name: "course_qa"
 
 # ============================================================
 # 检索配置
@@ -48,6 +51,7 @@ retrieval:
 reranker:
   model_name: "BAAI/bge-reranker-base"       # 中文课程推荐用中文重排序模型
   cache_dir: "./models"
+  device: null                                # 运行设备：null 自动检测，"cuda" 使用 GPU，"cpu" 强制使用 CPU
 
 # ============================================================
 # 对话记忆配置
@@ -61,3 +65,87 @@ memory:
 logging:
   level: "INFO"
   file: "./logs/qa.log"
+
+# ============================================================
+# 企业级增强配置
+enterprise:
+  # Redis 配置（分布式缓存）
+  redis:
+    enabled: false  # 是否启用 Redis（false 则使用内存缓存）
+    host: "localhost"
+    port: 6379
+    db: 0
+    password: null  # 或 ${REDIS_PASSWORD}
+    socket_timeout: 5
+    socket_connect_timeout: 5
+  
+  # JWT 认证配置
+  jwt:
+    enabled: false  # 是否启用 JWT 认证
+    secret_key: "${JWT_SECRET_KEY}"  # JWT 签名密钥
+    algorithm: "HS256"
+    access_token_expire_minutes: 30
+    refresh_token_expire_days: 7
+  
+  # 限流配置
+  rate_limit:
+    enabled: true
+    per_minute: 60
+    per_hour: 1000
+    per_day: 10000
+  
+  # 结构化日志配置
+  logging:
+    json_output: true  # 是否输出 JSON 格式日志
+    include_context: true  # 是否包含请求上下文
+    mask_fields:  # 需要脱敏的字段
+      - "password"
+      - "api_key"
+      - "token"
+      - "secret"
+  
+  # 密钥管理配置
+  secret_manager:
+    enabled: false  # 是否启用密钥管理器
+    master_key: "${SECRET_MASTER_KEY}"  # 主密钥
+    encrypted_file: "./secrets/encrypted.yaml"  # 加密密钥文件路径
+  
+  # 监控告警配置
+  monitoring:
+    enabled: true
+    eval_interval: 10  # 告警评估间隔（秒）
+    webhook_url: null  # 告警 Webhook URL
+    rules:
+      high_error_rate:
+        metric: "errors_total"
+        threshold: 100
+        operator: ">"
+        severity: "critical"
+      high_latency:
+        metric: "request_duration_seconds"
+        threshold: 5.0
+        operator: ">"
+        severity: "warning"
+      too_many_sessions:
+        metric: "active_sessions"
+        threshold: 1000
+        operator: ">"
+        severity: "warning"
+  
+  # 异步处理配置
+  async:
+    enabled: false  # 是否启用异步任务队列
+    max_concurrent: 10
+    default_timeout: 30.0
+
+# 课程关键词配置（用于从文件路径自动检测课程标签）
+#   新增课程时只需在此处添加关键词，无需修改代码
+# ============================================================
+course_keywords:
+  - "数据结构"
+  - "操作系统"
+  - "计算机网络"
+  - "软件工程"
+  - "计算机组成"
+  - "数据库"
+  - "编译原理"

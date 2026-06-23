@@ -1,8 +1,11 @@
 # 配置文件（含 API Key）
 config.yaml
 
-# 向量库持久化数据
-data/chroma_db/
+# 环境变量文件（含敏感信息）
+.env
+
+# 数据目录（向量库 + Session 持久化 + 用户对话 + 缓存）
+data/
 
 # 下载的模型
 models/
@@ -10,19 +13,27 @@ models/
 # 日志
 logs/
 
-# Session 持久化（含用户对话）
-data/sessions.json
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
+*.egg-info/
+dist/
 
 # IDE
 .vscode/
 .idea/
 
-# 临时/审核文件
+# 临时/审核/分析报告
 p.md
+enterprise_analysis_report.md
+企业级改进总结报告.md
+全方位企业级分析报告.md
+前端设计模板.html
+demo.html
+
+# 个人文件（简历等）
+*.docx
+*.pdf

@@ -16,17 +16,37 @@ import logging
 import os
 import hashlib
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    Docx2txtLoader,
-    TextLoader,
-)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+
+# 独立集成包导入（替代 langchain-community）
+try:
+    from langchain_pdf import PyPDFLoader
+except ImportError:
+    try:
+        from langchain_community.document_loaders import PyPDFLoader
+    except ImportError:
+        raise ImportError("PDF 支持需要安装 langchain-pdf 或 langchain-community，请运行: pip install langchain-pdf")
+
+try:
+    from langchain_docx import Docx2txtLoader
+except ImportError:
+    try:
+        from langchain_community.document_loaders import Docx2txtLoader
+    except ImportError:
+        raise ImportError("Word 支持需要安装 langchain-docx 或 langchain-community，请运行: pip install langchain-docx")
+
+try:
+    from langchain_text_splitters import TextLoader
+except ImportError:
+    try:
+        from langchain_community.document_loaders import TextLoader
+    except ImportError:
+        raise ImportError("文本加载器需要安装 langchain-text-splitters 或 langchain-community")
 
 
 # 支持的文件扩展名 → Loader 映射
@@ -38,21 +58,68 @@ LOADER_MAP: Dict[str, type] = {
 }
 
 
-# 已知的课程名称关键词（用于从路径自动检测课程标签）
-_COURSE_KEYWORDS = ["数据结构", "操作系统", "计算机网络", "软件工程", "计算机组成", "数据库", "编译原理"]
+# 默认课程关键词（当配置中未指定时使用）
+_DEFAULT_COURSE_KEYWORDS = ["数据结构", "操作系统", "计算机网络", "软件工程", "计算机组成", "数据库", "编译原理"]
 
-def _detect_course(file_path: Path) -> str | None:
+# 课程关键词缓存
+_course_keywords_cache = {
+    "keywords": None,
+    "last_load_time": 0,
+    "cache_ttl": 60,  # 缓存 60 秒
+}
+
+
+# 从配置加载课程关键词（支持动态更新）
+def _get_course_keywords(force_reload: bool = False) -> List[str]:
+    """从配置文件获取课程关键词列表，支持热更新。
+    
+    Args:
+        force_reload: 强制重新加载配置（忽略缓存）
+    
+    Returns:
+        课程关键词列表
+    """
+    import time
+    
+    current_time = time.time()
+    
+    # 检查缓存是否有效
+    if (not force_reload and 
+        _course_keywords_cache["keywords"] is not None and
+        current_time - _course_keywords_cache["last_load_time"] < _course_keywords_cache["cache_ttl"]):
+        return _course_keywords_cache["keywords"]
+    
+    # 加载配置
+    try:
+        from src.utils import load_config
+        config = load_config()
+        keywords = config.get("course_keywords", _DEFAULT_COURSE_KEYWORDS)
+        if isinstance(keywords, list) and keywords:
+            _course_keywords_cache["keywords"] = keywords
+            _course_keywords_cache["last_load_time"] = current_time
+            return keywords
+    except Exception as e:
+        logger.debug(f"从配置加载课程关键词失败，使用默认值: {e}")
+    
+    # 使用默认值
+    _course_keywords_cache["keywords"] = _DEFAULT_COURSE_KEYWORDS
+    _course_keywords_cache["last_load_time"] = current_time
+    return _DEFAULT_COURSE_KEYWORDS
+
+
+def _detect_course(file_path: Path) -> Optional[str]:
     """从文件路径中自动检测所属课程。
 
     检查路径的每一级目录名是否包含已知课程关键词。
     """
+    course_keywords = _get_course_keywords()
     for part in file_path.parts:
-        for kw in _COURSE_KEYWORDS:
+        for kw in course_keywords:
             if kw in part:
                 return kw
     return None
 
-def _load_text_with_fallback(file_path: str, loader_cls: type) -> list:
+def _load_text_with_fallback(file_path: str, loader_cls: type) -> List[Document]:
     """加载文本文件，UTF-8 优先，失败回退 GBK/GB2312。"""
     encodings = ["utf-8", "gbk", "gb2312"]
     for enc in encodings:
@@ -70,14 +137,14 @@ def _load_text_with_fallback(file_path: str, loader_cls: type) -> list:
     return [Document(page_content=content, metadata={"source": Path(file_path).name})]
 
 
-def _get_loader(file_path: Path) -> type:
+def _get_loader(file_path: Path) -> Optional[type]:
     """根据文件扩展名返回对应的 LangChain Loader 类。
 
     Args:
         file_path: 文件路径。
 
     Returns:
-        Loader 类（未实例化）。
+        Loader 类（未实例化），如果文件格式不支持则返回 None。
 
     Raises:
         ValueError: 不支持的文件格式时抛出。

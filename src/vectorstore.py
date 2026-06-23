@@ -11,7 +11,7 @@
 import logging
 import time
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Set
 
 from openai import OpenAI
 
@@ -41,22 +41,51 @@ class BailianEmbeddings(Embeddings):
         self.batch_size = batch_size
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """批量生成文档嵌入。每批最多 batch_size 条，自动重试 3 次。"""
-        results: list[list[float]] = []
+        """批量生成文档嵌入。使用线程池并发处理，每批最多 batch_size 条，自动重试 3 次。"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        results: list[list[float]] = [None] * len(texts)
         batch_size = self.batch_size
+        
+        # 将文本分成多个批次
+        batches = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
+            batches.append((i, batch))
+        
+        def process_batch(args):
+            """处理单个批次，带重试机制。"""
+            start_idx, batch = args
             for attempt in range(3):
                 try:
                     resp = self.client.embeddings.create(model=self.model, input=batch)
-                    results.extend([d.embedding for d in resp.data])
-                    break
+                    embeddings = [d.embedding for d in resp.data]
+                    return start_idx, embeddings, None
                 except Exception as e:
                     if attempt == 2:
-                        raise
+                        return start_idx, None, e
                     logger.warning(f"Embedding 请求失败 (重试 {attempt+1}/3): {e}")
                     time.sleep(1.5 ** attempt)
-            logger.debug(f"Embedding 进度: {min(i + batch_size, len(texts))}/{len(texts)}")
+        
+        # 使用线程池并发处理（最多 4 个并发请求，避免触发 API 限流）
+        max_workers = min(4, len(batches)) if batches else 1
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_batch, batch): batch[0] for batch in batches}
+            
+            completed = 0
+            for future in as_completed(futures):
+                start_idx, embeddings, error = future.result()
+                completed += 1
+                
+                if error:
+                    raise error
+                
+                # 将结果放入正确位置
+                for i, emb in enumerate(embeddings):
+                    results[start_idx + i] = emb
+                
+                logger.debug(f"Embedding 进度: {completed}/{len(batches)} 批次完成")
+        
         return results
 
     def embed_query(self, text: str) -> list[float]:
@@ -96,11 +125,11 @@ def get_embedding_model(config: dict[str, Any]) -> Embeddings:
     if emb_config.get("api_base", "").strip() == "local":
         # 预留本地 sentence-transformers 切换
         try:
-            from langchain_community.embeddings import HuggingFaceEmbeddings
+            from langchain_huggingface import HuggingFaceEmbeddings
         except ImportError:
             raise ImportError(
-                "本地 Embedding 模式需要安装 langchain-community 和 sentence-transformers，"
-                "请运行: pip install langchain-community sentence-transformers"
+                "本地 Embedding 模式需要安装 langchain-huggingface，"
+                "请运行: pip install langchain-huggingface"
             )
         model_name = emb_config.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
         logger.info(f"使用本地 Embedding 模型: {model_name}")
@@ -134,7 +163,7 @@ def get_vectorstore(config: dict[str, Any], embedder: Optional[Embeddings] = Non
 
     chroma_config = config["chroma"]
     persist_dir = chroma_config["persist_dir"]
-    collection_name = chroma_config.get("collection_name", "course_materials")
+    collection_name = chroma_config.get("collection_name", "course_qa")
 
     # 确保持久化目录存在
     Path(persist_dir).mkdir(parents=True, exist_ok=True)

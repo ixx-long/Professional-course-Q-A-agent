@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: course-qa
+  namespace: course-qa
+  labels:
+    app: course-qa
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: course-qa
+  template:
+    metadata:
+      labels:
+        app: course-qa
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: course-qa
+        image: your-registry/course-qa:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+          name: http
+        - containerPort: 9090
+          name: metrics
+        
+        # 环境变量
+        env:
+        - name: DEEPSEEK_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: course-qa-secrets
+              key: deepseek-api-key
+        - name: BAILIAN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: course-qa-secrets
+              key: bailian-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: course-qa-secrets
+              key: jwt-secret
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: course-qa-secrets
+              key: redis-password
+        - name: CONFIG_PATH
+          value: "/app/config/config.yaml"
+        
+        # 资源限制
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        # 健康检查
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # 启动探针（可选，用于慢启动应用）
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          failureThreshold: 30
+          periodSeconds: 10
+        
+        # 挂载卷
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        - name: logs-volume
+          mountPath: /app/logs
+        - name: data-volume
+          mountPath: /app/data
+        
+        # 生命周期钩子
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10"]
+      
+      # 卷配置
+      volumes:
+      - name: config-volume
+        configMap:
+          name: course-qa-config
+      - name: logs-volume
+        emptyDir: {}
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: course-qa-data
+      
+      # 镜像拉取密钥（如果需要）
+      # imagePullSecrets:
+      # - name: registry-secret
+      
+      # 服务账户（如果需要）
+      # serviceAccountName: course-qa
+      
+      # 安全上下文
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+---
+# 持久化存储声明（可选）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: course-qa-data
+  namespace: course-qa
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
